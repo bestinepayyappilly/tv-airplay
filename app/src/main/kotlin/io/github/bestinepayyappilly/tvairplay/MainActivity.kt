@@ -10,6 +10,7 @@ import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.util.Log
 import android.util.Rational
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -23,6 +24,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import io.github.bestinepayyappilly.tvairplay.service.AirPlayService
+import io.github.bestinepayyappilly.tvairplay.service.AlwaysOn
 import io.github.bestinepayyappilly.tvairplay.ui.MainScreen
 import io.github.bestinepayyappilly.tvairplay.ui.theme.AirPlayTheme
 import io.github.bestinepayyappilly.tvairplay.viewmodel.MainViewModel
@@ -63,6 +65,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        _applyTurnScreenOn(intent)
         enableEdgeToEdge()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -115,6 +118,32 @@ class MainActivity : ComponentActivity() {
                     onPip = { enterPip() }
                 )
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        _applyTurnScreenOn(intent)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // one-shot: once shown, later resumes must not wake a TV the user turned off
+        window.decorView.post { _setTurnScreenOn(false) }
+    }
+
+    private fun _applyTurnScreenOn(intent: Intent?) {
+        if (intent?.getBooleanExtra(AlwaysOn.EXTRA_TURN_SCREEN_ON, false) != true) return
+        intent.removeExtra(AlwaysOn.EXTRA_TURN_SCREEN_ON)
+        Log.i("MainActivity", "turn screen on requested")
+        _setTurnScreenOn(true)
+    }
+
+    private fun _setTurnScreenOn(on: Boolean) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) setTurnScreenOn(on)
+        else @Suppress("DEPRECATION") {
+            if (on) window.addFlags(WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON)
+            else window.clearFlags(WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON)
         }
     }
 

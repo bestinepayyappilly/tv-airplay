@@ -115,11 +115,15 @@ class AlwaysOn(private val ctx: Context) {
 
     /** Wakes the screen and opens the app; posts a full-screen prompt if the start is blocked. */
     fun bringToFront() = onMain {
+        val asleep = !power.isInteractive
         wakeScreen()
         val allowed = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
             Settings.canDrawOverlays(ctx) || isInForeground()
         try {
+            // OnePlus/MStar STR standby ignores the wake lock; the activity asks the window
+            // manager to turn the screen on as well, which goes through a different path
             ctx.startActivity(Intent(ctx, MainActivity::class.java)
+                .putExtra(EXTRA_TURN_SCREEN_ON, asleep)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
         } catch (e: RuntimeException) {
             Log.w(TAG, "cannot open the app", e)
@@ -220,6 +224,7 @@ class AlwaysOn(private val ctx: Context) {
 
     companion object {
         private const val TAG = "AlwaysOn"
+        const val EXTRA_TURN_SCREEN_ON = "io.github.bestinepayyappilly.tvairplay.TURN_SCREEN_ON"
         private const val WAKE_MS = 3_000L
         // safety cap in case a session end is never reported
         private const val SESSION_LOCK_MAX_MS = 6 * 60 * 60 * 1000L
