@@ -18,7 +18,6 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
-import android.os.PowerManager
 import android.os.SystemClock
 import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaSessionCompat
@@ -43,7 +42,7 @@ import io.github.jqssun.airplay.audio.VolumeBroadcast
 import io.github.jqssun.airplay.bridge.LogListener
 import io.github.jqssun.airplay.bridge.NativeBridge
 import io.github.jqssun.airplay.bridge.RaopCallbackHandler
-import io.github.jqssun.airplay.discovery.NsdServiceManager
+import io.github.jqssun.airplay.discovery.Advertiser
 import io.github.jqssun.airplay.download.VideoDownloader
 import io.github.jqssun.airplay.renderer.AirPlayVideoPlayer
 import io.github.jqssun.airplay.renderer.AudioRenderer
@@ -70,8 +69,7 @@ data class VideoPlaybackInfo(
 class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
 
     private var nativeHandle = 0L
-    private var nsdManager: NsdServiceManager? = null
-    private var wakeLock: PowerManager.WakeLock? = null
+    private val alwaysOn by lazy { AlwaysOn(this) }
     private var foregroundStarted = false
     private var lastOrientation = Configuration.ORIENTATION_UNDEFINED
 
@@ -330,13 +328,15 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_START_SERVER) {
+        // null intent = sticky restart after the process was killed
+        val restarted = intent == null && prefs.getBoolean(Prefs.BOOT_AUTO_START, Prefs.DEF_BOOT_AUTO_START)
+        if (intent?.action == ACTION_START_SERVER || restarted) {
             promoteToForeground()
             val name = prefs.getString(Prefs.SERVER_NAME, Prefs.DEF_SERVER_NAME) ?: Prefs.DEF_SERVER_NAME
             startServer(name, ensureServiceStarted = false)
             if (_serverState.value != ServerState.RUNNING) stopSelf(startId)
         }
-        return START_NOT_STICKY
+        return if (_serverState.value == ServerState.RUNNING) START_STICKY else START_NOT_STICKY
     }
 
     fun startServer(name: String) {
@@ -346,11 +346,6 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
     private fun startServer(name: String, ensureServiceStarted: Boolean) {
         if (_serverState.value == ServerState.RUNNING) return
         val effectiveName = name.ifBlank { Prefs.DEF_SERVER_NAME }
-
-        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "airplay:server").apply { acquire() }
-
-        nsdManager = NsdServiceManager(this).apply { acquireMulticastLock() }
 
         val hwAddr = getHwAddr()
         val keyFile = filesDir.resolve("airplay.pem").absolutePath
@@ -425,10 +420,8 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
         val raopName = NativeBridge.nativeGetRaopServiceName(nativeHandle) ?: "AirPlay"
         val resolvedName = NativeBridge.nativeGetServerName(nativeHandle) ?: effectiveName
 
-        if (prefs.getBoolean(Prefs.ADVERTISE_AUDIO, Prefs.DEF_ADVERTISE_AUDIO)) {
-            nsdManager?.registerRaop(raopName, port, raopTxt)
-        }
-        nsdManager?.registerAirplay(resolvedName, port, airplayTxt)
+        val advertiseRaop = prefs.getBoolean(Prefs.ADVERTISE_AUDIO, Prefs.DEF_ADVERTISE_AUDIO)
+        alwaysOn.start(Advertiser.Registration(resolvedName, raopName.takeIf { advertiseRaop }, port, airplayTxt, raopTxt))
 
         _serverState.value = ServerState.RUNNING
         if (ensureServiceStarted) {
@@ -477,10 +470,7 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
             NativeBridge.nativeDestroy(nativeHandle)
             nativeHandle = 0L
         }
-        nsdManager?.release()
-        nsdManager = null
-        wakeLock?.release()
-        wakeLock = null
+        alwaysOn.stop()
         _serverState.value = ServerState.ERROR
         if (foregroundStarted) {
             stopForeground(STOP_FOREGROUND_REMOVE)
@@ -496,10 +486,7 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
             nativeHandle = 0L
         }
         dacpController?.reset()
-        nsdManager?.release()
-        nsdManager = null
-        wakeLock?.release()
-        wakeLock = null
+        alwaysOn.stop()
         videoRenderer.release()
         airPlayVideoPlayer.stop()
         mediaSession?.isActive = false
@@ -715,16 +702,18 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
         _connectionCount.value++
         log("Client connected (${_connectionCount.value})")
         if (!firstConnection) return
+        alwaysOn.sessionStarted()
         // conn_init is only a tcp pre-auth signal. pin-required sessions must wait for
         // onDisplayPin, otherwise the server ui can move before the client pin is current
         if (requiresPin()) return
         if (!shouldLaunchOnConnect()) return
-        launchMainActivity()
+        alwaysOn.bringToFront()
     }
 
     override fun onConnectionDestroy() {
         _connectionCount.value = (_connectionCount.value - 1).coerceAtLeast(0)
         if (_connectionCount.value == 0) {
+            alwaysOn.sessionEnded()
             // clients may drop without POST /stop; must run before the poll-state reset
             _endVideoPlayback("AirPlay Video stopped (disconnect)")
             // last client gone: release audio output devices to save power
@@ -762,6 +751,8 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
         _lastPin = pin
         pinCallback?.invoke(pin)
         _updateMediaNotification()
+        // the pin is current now, so the screen showing it can come forward
+        if (shouldLaunchOnConnect()) alwaysOn.bringToFront()
     }
 
     override fun onMetadata(data: ByteArray) {
@@ -1067,18 +1058,6 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
             }
         }
         return builder.build()
-    }
-
-    private fun launchMainActivity() {
-        Handler(Looper.getMainLooper()).post {
-            val launchIntent = Intent(this, MainActivity::class.java)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
-            try {
-                startActivity(launchIntent)
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to launch activity", e)
-            }
-        }
     }
 
     private fun _mediaAction(action: String): PendingIntent {

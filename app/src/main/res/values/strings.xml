@@ -8,6 +8,9 @@
     <string name="notification_text">Accepting AirPlay connections</string>
     <string name="notification_pin_title">AirPlay PIN Required</string>
     <string name="notification_pin_text">PIN: %1$s</string>
+    <string name="session_channel">AirPlay Connections</string>
+    <string name="session_prompt_title">AirPlay connection</string>
+    <string name="session_prompt_text">A device is connecting. Select to open.</string>
     <string name="stop_service">Stop</string>
 
     <!-- Tabs -->
