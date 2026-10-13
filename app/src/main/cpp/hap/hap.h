@@ -50,6 +50,12 @@ int hap_cipher_decrypt(hap_cipher_t *c, const uint8_t *in, size_t inlen, uint8_t
 /* Encrypts into 1024-byte frames. Returns ciphertext length in *out (malloc'd), -1 on error. */
 int hap_cipher_encrypt(hap_cipher_t *c, const uint8_t *in, size_t inlen, uint8_t **out);
 
+/* One ChaCha20-Poly1305 open with a 12-byte nonce of 4 zero bytes + nonce8, as AirPlay 2's
+ * screen and audio streams use. in = ciphertext followed by the 16-byte tag. Writes the plaintext
+ * (inlen - 16 bytes) to out, which may alias in; returns its length, or -1 if authentication fails. */
+int hap_aead_open(const uint8_t key[32], const uint8_t nonce8[8], const uint8_t *aad, size_t aadlen,
+                  const uint8_t *in, size_t inlen, uint8_t *out);
+
 /* HKDF-SHA512 into out (outlen bytes); 0 on success */
 int hap_hkdf(const uint8_t *secret, size_t secret_len, const char *salt, const char *info,
              uint8_t *out, size_t outlen);

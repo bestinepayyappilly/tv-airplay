@@ -395,6 +395,26 @@ static int aead(int enc, const uint8_t key[32], uint64_t count, const uint8_t aa
     return ok ? 0 : -1;
 }
 
+int hap_aead_open(const uint8_t key[32], const uint8_t nonce8[8], const uint8_t *aad, size_t aadlen,
+                  const uint8_t *in, size_t inlen, uint8_t *out) {
+    if (inlen < TAG_LEN || inlen - TAG_LEN > (size_t) INT32_MAX) return -1;
+    int len = (int) (inlen - TAG_LEN);
+    uint8_t nonce[12] = { 0 }, tag[TAG_LEN];
+    memcpy(nonce + 4, nonce8, 8);
+    memcpy(tag, in + len, TAG_LEN);
+    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+    int outl = 0, ok = ctx &&
+        EVP_DecryptInit_ex(ctx, EVP_chacha20_poly1305(), NULL, NULL, NULL) > 0 &&
+        EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_SET_IVLEN, 12, NULL) > 0 &&
+        EVP_DecryptInit_ex(ctx, NULL, NULL, key, nonce) > 0 &&
+        (aadlen == 0 || EVP_DecryptUpdate(ctx, NULL, &outl, aad, (int) aadlen) > 0) &&
+        EVP_DecryptUpdate(ctx, out, &outl, in, len) > 0 &&
+        EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_SET_TAG, TAG_LEN, tag) > 0 &&
+        EVP_DecryptFinal_ex(ctx, out + outl, &outl) > 0;
+    EVP_CIPHER_CTX_free(ctx);
+    return ok ? len : -1;
+}
+
 int hap_cipher_decrypt(hap_cipher_t *c, const uint8_t *in, size_t inlen, uint8_t **out) {
     *out = NULL;
     if (inlen && buf_put(&c->pending, in, inlen)) return -1;

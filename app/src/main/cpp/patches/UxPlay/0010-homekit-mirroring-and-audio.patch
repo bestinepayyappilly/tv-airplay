@@ -1,0 +1,243 @@
+--- a/lib/raop_rtp_mirror.h
++++ b/lib/raop_rtp_mirror.h
+@@ -28,6 +28,8 @@
+ raop_rtp_mirror_t *raop_rtp_mirror_init(logger_t *logger, raop_callbacks_t *callbacks, raop_ntp_t *ntp,
+                                         const char *remote, int remotelen, const unsigned char *aeskey);
+ void raop_rtp_mirror_init_aes(raop_rtp_mirror_t *raop_rtp_mirror, uint64_t *streamConnectionID);
++/* HomeKit-paired sessions: video frames are ChaCha20-Poly1305 sealed instead of AES-CTR */
++void raop_rtp_mirror_init_chacha(raop_rtp_mirror_t *raop_rtp_mirror, const unsigned char key[32]);
+ void raop_rtp_mirror_start(raop_rtp_mirror_t *raop_rtp_mirror, unsigned short *mirror_data_lport, uint8_t show_client_FPS_data);
+ void raop_rtp_mirror_stop(raop_rtp_mirror_t *raop_rtp_mirror);
+ void raop_rtp_mirror_destroy(raop_rtp_mirror_t *raop_rtp_mirror);
+--- a/lib/raop_rtp_mirror.c
++++ b/lib/raop_rtp_mirror.c
+@@ -15,6 +15,7 @@
+  * modified by fduncanh 2021-2023
+  */
+ 
++#include "hap/hap.h"
+ #include "raop_rtp_mirror.h"
+ 
+ #include <stdlib.h>
+@@ -104,6 +105,11 @@
+ 
+      /* switch for displaying client FPS data */
+      uint8_t show_client_FPS_data;
++
++    /* HomeKit-paired session: frame key and per-frame nonce counter */
++    int chacha;
++    unsigned char chacha_key[32];
++    uint64_t chacha_count;
+ };
+ 
+ static int
+@@ -165,6 +171,14 @@
+ raop_rtp_mirror_init_aes(raop_rtp_mirror_t *raop_rtp_mirror, uint64_t *streamConnectionID)
+ {
+     mirror_buffer_init_aes(raop_rtp_mirror->buffer, streamConnectionID);
++}
++
++void
++raop_rtp_mirror_init_chacha(raop_rtp_mirror_t *raop_rtp_mirror, const unsigned char key[32])
++{
++    memcpy(raop_rtp_mirror->chacha_key, key, 32);
++    raop_rtp_mirror->chacha_count = 0;
++    raop_rtp_mirror->chacha = 1;
+ }
+ 
+ #define RAOP_PACKET_LEN 32768
+@@ -446,8 +460,27 @@
+                     payload_out = (unsigned char*)  malloc(payload_size);
+                     payload_decrypted = payload_out;
+                 }
+-                // Decrypt data: AES-CTR encryption/decryption  does not change the size of the data
+-                mirror_buffer_decrypt(raop_rtp_mirror->buffer, payload, payload_decrypted, payload_size);
++                if (raop_rtp_mirror->chacha) {
++                    /* HomeKit session: body = ciphertext + 16-byte tag, AAD = the 128-byte header,
++                       nonce = 64-bit little-endian frame counter (advanced only on success) */
++                    unsigned char nonce8[8];
++                    for (int i = 0; i < 8; i++) nonce8[i] = (unsigned char) (raop_rtp_mirror->chacha_count >> (8 * i));
++                    int plain = hap_aead_open(raop_rtp_mirror->chacha_key, nonce8, packet, 128,
++                                              payload, (size_t) payload_size, payload_decrypted);
++                    if (plain < 0) {
++                        logger_log(raop_rtp_mirror->logger, LOGGER_ERR,
++                                   "raop_rtp_mirror: frame %llu failed authentication, dropped",
++                                   (unsigned long long) raop_rtp_mirror->chacha_count);
++                        free(payload_out);
++                        prepend_sps_pps = false;
++                        break;
++                    }
++                    raop_rtp_mirror->chacha_count++;
++                    payload_size = plain;
++                } else {
++                    // Decrypt data: AES-CTR encryption/decryption  does not change the size of the data
++                    mirror_buffer_decrypt(raop_rtp_mirror->buffer, payload, payload_decrypted, payload_size);
++                }
+ 
+                 // It seems the AirPlay protocol prepends NALs with their size, which we're replacing with the 4-byte
+                 // start code for the NAL Byte-Stream Format.
+--- a/lib/raop_buffer.h
++++ b/lib/raop_buffer.h
+@@ -36,5 +36,7 @@
+ int raop_buffer_decrypt(raop_buffer_t *raop_buffer, unsigned char *data, unsigned char* output,
+                         unsigned int datalen, unsigned int *outputlen);
+ void raop_buffer_destroy(raop_buffer_t *raop_buffer);
++/* HomeKit-paired sessions: packets are ChaCha20-Poly1305 sealed instead of AES-CBC */
++void raop_buffer_set_chacha(raop_buffer_t *raop_buffer, const unsigned char key[32]);
+ 
+ #endif
+--- a/lib/raop_buffer.c
++++ b/lib/raop_buffer.c
+@@ -15,6 +15,7 @@
+  * modified by fduncanh 2021-2023
+  */
+ 
++#include "hap/hap.h"
+ #include <stdlib.h>
+ #include <string.h>
+ #include <assert.h>
+@@ -54,6 +55,9 @@
+     logger_t *logger;
+     /* AES CTX used for decryption */
+     aes_ctx_t *aes_ctx;
++    /* HomeKit-paired session key; replaces aes_ctx when set */
++    int chacha;
++    unsigned char chacha_key[32];
+ 
+     /* First and last seqnum */
+     int is_empty;
+@@ -125,7 +129,22 @@
+             str = utils_data_to_string(&data[12],16,16);
+             logger_log(raop_buffer->logger, LOGGER_INFO, "len %d before decryption:\n%s", payload_size, str);
+             free(str);
++        }
++    }
++    if (raop_buffer->chacha) {
++        /* packet = 12-byte RTP header | ciphertext | 16-byte tag | 8-byte nonce; AAD = header[4..11] */
++        if (payload_size < 24) {
++            *outputlen = 0;
++            return -1;
++        }
++        int plain = hap_aead_open(raop_buffer->chacha_key, data + 12 + payload_size - 8, data + 4, 8,
++                                  data + 12, payload_size - 8, output);
++        if (plain < 0) {
++            *outputlen = 0;
++            return -1;
+         }
++        *outputlen = (unsigned int) plain;
++        return 1;
+     }
+     int encryptedlen = payload_size / 16*16;
+     memset(output, 0, payload_size);
+@@ -305,3 +324,10 @@
+         raop_buffer->last_seqnum = next_seq - 1;
+     }
+ }
++
++void
++raop_buffer_set_chacha(raop_buffer_t *raop_buffer, const unsigned char key[32])
++{
++    memcpy(raop_buffer->chacha_key, key, 32);
++    raop_buffer->chacha = 1;
++}
+--- a/lib/raop_rtp.h
++++ b/lib/raop_rtp.h
+@@ -45,4 +45,7 @@
+ int raop_rtp_is_running(raop_rtp_t *raop_rtp);
+ void raop_rtp_destroy(raop_rtp_t *raop_rtp);
+ 
++/* HomeKit-paired sessions: audio packets are ChaCha20-Poly1305 sealed with this key */
++void raop_rtp_set_chacha_key(raop_rtp_t *raop_rtp, const unsigned char key[32]);
++
+ #endif
+--- a/lib/raop_rtp.c
++++ b/lib/raop_rtp.c
+@@ -840,4 +840,10 @@
+     int running = raop_rtp->running;
+     MUTEX_UNLOCK(raop_rtp->run_mutex);
+     return running;
++}
++
++void
++raop_rtp_set_chacha_key(raop_rtp_t *raop_rtp, const unsigned char key[32])
++{
++    raop_buffer_set_chacha(raop_rtp->buffer, key);
+ }
+--- a/lib/raop_handlers.h
++++ b/lib/raop_handlers.h
+@@ -641,6 +641,16 @@
+                      char **response_data, int *response_datalen)
+ {
+     http_response_add_header(response, "Public", "SETUP, RECORD, FLUSH, TEARDOWN, OPTIONS, GET_PARAMETER, SET_PARAMETER");
++}
++
++/* HomeKit sessions key each stream with HKDF-SHA512(pairing secret, "DataStream-Salt<id>",
++   "DataStream-Output-Encryption-Key"), as macOS's own receiver does (AirPlayReceiver _ScreenSetup) */
++static int
++raop_hap_stream_key(raop_conn_t *conn, uint64_t stream_connection_id, unsigned char key[32])
++{
++    char salt[48];
++    snprintf(salt, sizeof(salt), "DataStream-Salt%llu", (unsigned long long) stream_connection_id);
++    return hap_hkdf(conn->hap_secret, HAP_SECRET_LEN, salt, "DataStream-Output-Encryption-Key", key, 32);
+ }
+ 
+ static void
+@@ -670,6 +680,14 @@
+         conn->raop_ntp = raop_ntp_init(raop->logger, &raop->callbacks, remote,
+                                        conn->remotelen, (unsigned short) timing_rport, &time_protocol);
+         raop_ntp_start(conn->raop_ntp, &timing_lport);
++    }
++    if (!conn->raop_rtp) {
++        /* no FairPlay keys here: screen and audio streams get ChaCha keys at their own SETUP */
++        unsigned char no_key[16] = { 0 }, no_iv[16] = { 0 };
++        conn->raop_rtp = raop_rtp_init(raop->logger, &raop->callbacks, conn->raop_ntp,
++                                       remote, conn->remotelen, no_key, no_iv);
++        conn->raop_rtp_mirror = raop_rtp_mirror_init(raop->logger, &raop->callbacks,
++                                                     conn->raop_ntp, remote, conn->remotelen, no_key);
+     }
+ 
+     unsigned short event_port = 0;
+@@ -1096,7 +1114,14 @@
+                            " key and iv): %llu", stream_connection_id);
+ 
+                 if (conn->raop_rtp_mirror) {
+-                    raop_rtp_mirror_init_aes(conn->raop_rtp_mirror, &stream_connection_id);
++                    unsigned char screen_key[32];
++                    if (conn->hap_paired && raop_hap_stream_key(conn, stream_connection_id, screen_key) == 0) {
++                        raop_rtp_mirror_init_chacha(conn->raop_rtp_mirror, screen_key);
++                        logger_log(raop->logger, LOGGER_ERR, "screen stream %llu: ChaCha20-Poly1305 (HomeKit session)",
++                                   (unsigned long long) stream_connection_id);
++                    } else {
++                        raop_rtp_mirror_init_aes(conn->raop_rtp_mirror, &stream_connection_id);
++                    }
+                     raop_rtp_mirror_start(conn->raop_rtp_mirror, &dport, raop->clientFPSdata);
+                     logger_log(raop->logger, LOGGER_DEBUG, "Mirroring initialized successfully");
+                 } else {
+@@ -1163,6 +1188,27 @@
+                     raop->callbacks.audio_get_format(raop->callbacks.cls, &ct, &spf, &usingScreen, &isMedia, &audioFormat);
+                 }
+ 
++                if (conn->raop_rtp && conn->hap_paired) {
++                    /* HomeKit session: the stream's shk if it sends one, else the derived key */
++                    unsigned char audio_key[32];
++                    char *shk = NULL;
++                    uint64_t shk_len = 0;
++                    plist_t shk_node = plist_dict_get_item(req_stream_node, "shk");
++                    if (PLIST_IS_DATA(shk_node)) plist_get_data_val(shk_node, &shk, &shk_len);
++                    uint64_t audio_id = 0;
++                    plist_get_uint_val(plist_dict_get_item(req_stream_node, "streamConnectionID"), &audio_id);
++                    int have_key = 0;
++                    if (shk && shk_len == 32) {
++                        memcpy(audio_key, shk, 32);
++                        have_key = 1;
++                    } else if (raop_hap_stream_key(conn, audio_id, audio_key) == 0) {
++                        have_key = 1;
++                    }
++                    if (shk) plist_mem_free(shk);
++                    if (have_key) raop_rtp_set_chacha_key(conn->raop_rtp, audio_key);
++                    logger_log(raop->logger, LOGGER_ERR, "audio stream: ChaCha20-Poly1305 (HomeKit session, %s)",
++                               shk_len == 32 ? "shk" : "derived key");
++                }
+                 if (conn->raop_rtp) {
+                     raop_rtp_start_audio(conn->raop_rtp, &remote_cport, &cport, &dport, &ct, &sr);
+                     logger_log(raop->logger, LOGGER_DEBUG, "RAOP initialized success");
