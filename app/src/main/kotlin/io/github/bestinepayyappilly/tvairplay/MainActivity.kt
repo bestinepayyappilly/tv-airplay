@@ -124,6 +124,10 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         _applyTurnScreenOn(intent)
+        // the session that brought the app forward is over: show what was there before
+        if (intent.getBooleanExtra(AlwaysOn.EXTRA_MOVE_TO_BACK, false) && service?.connectionCount?.value == 0) {
+            moveTaskToBack(true)
+        }
     }
 
     override fun onResume() {

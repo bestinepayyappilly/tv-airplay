@@ -31,6 +31,7 @@ import io.github.bestinepayyappilly.tvairplay.discovery.NetworkMonitor
  * - holds wake and Wi-Fi locks only while a session is open
  * - wakes the screen (the panel, or the TV over HDMI-CEC) and opens the app once a session is real, falling
  *   back to a full-screen-intent notification when background starts are blocked
+ * - when a session it opened the app for ends, steps back to whatever was showing before
  *
  * Public methods may be called from any thread; work runs on the main thread.
  */
@@ -49,6 +50,20 @@ class AlwaysOn(private val ctx: Context) {
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
     private var screenReceiver: BroadcastReceiver? = null
+    // this session put the app in front, so its end should hand the screen back
+    private var broughtForward = false
+    private val returnToPrevious = Runnable {
+        // the user may have opened the app on purpose or left it already
+        if (!isInForeground()) return@Runnable
+        Log.i(TAG, "session over, returning to the previous app")
+        try {
+            ctx.startActivity(Intent(ctx, MainActivity::class.java)
+                .putExtra(EXTRA_MOVE_TO_BACK, true)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "cannot step back", e)
+        }
+    }
 
     fun start(reg: Advertiser.Registration) = onMain {
         registration = reg
@@ -77,6 +92,8 @@ class AlwaysOn(private val ctx: Context) {
         screenReceiver?.let { try { ctx.unregisterReceiver(it) } catch (_: Exception) {} }
         screenReceiver = null
         releaseSessionLocks()
+        handler.removeCallbacks(returnToPrevious)
+        broughtForward = false
         multicastLock?.let { if (it.isHeld) it.release() }
         multicastLock = null
         cancelSessionPrompt()
@@ -105,17 +122,25 @@ class AlwaysOn(private val ctx: Context) {
 
     // locks only: a tcp connect alone may be a port probe, so waking waits for bringToFront
     fun sessionStarted() = onMain {
+        // a sender reconnecting (mirroring to extended display, say) keeps the app up
+        handler.removeCallbacks(returnToPrevious)
         acquireSessionLocks()
     }
 
     fun sessionEnded() = onMain {
         releaseSessionLocks()
         cancelSessionPrompt()
+        if (broughtForward) {
+            broughtForward = false
+            handler.postDelayed(returnToPrevious, RETURN_DELAY_MS)
+        }
     }
 
     /** Wakes the screen and opens the app; posts a full-screen prompt if the start is blocked. */
     fun bringToFront() = onMain {
         val asleep = !power.isInteractive
+        // already in front means the user opened it; then it stays when the session ends
+        broughtForward = asleep || !isInForeground()
         wakeScreen()
         val allowed = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
             Settings.canDrawOverlays(ctx) || isInForeground()
@@ -225,6 +250,9 @@ class AlwaysOn(private val ctx: Context) {
     companion object {
         private const val TAG = "AlwaysOn"
         const val EXTRA_TURN_SCREEN_ON = "io.github.bestinepayyappilly.tvairplay.TURN_SCREEN_ON"
+        const val EXTRA_MOVE_TO_BACK = "io.github.bestinepayyappilly.tvairplay.MOVE_TO_BACK"
+        // grace for a sender that disconnects and comes straight back
+        private const val RETURN_DELAY_MS = 3_000L
         private const val WAKE_MS = 3_000L
         // safety cap in case a session end is never reported
         private const val SESSION_LOCK_MAX_MS = 6 * 60 * 60 * 1000L
