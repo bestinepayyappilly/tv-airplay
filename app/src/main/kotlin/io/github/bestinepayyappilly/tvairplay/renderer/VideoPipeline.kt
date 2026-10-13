@@ -30,6 +30,8 @@ class VideoPipeline {
     private var aPos = 0
     private var aTex = 0
     private var uTexMatrix = 0
+    private var uInset = 0
+    private var loggedMatrixFor = 0L
     private val texMatrix = FloatArray(16)
     private var hasFrame = false
 
@@ -141,6 +143,11 @@ class VideoPipeline {
         egl.makeCurrent(window)
         st.updateTexImage()
         st.getTransformMatrix(texMatrix)
+        val size = (videoW.toLong() shl 32) or videoH.toLong()
+        if (size != loggedMatrixFor) {
+            loggedMatrixFor = size
+            Log.i(TAG, "${videoW}x$videoH tex matrix ${texMatrix.joinToString(",") { "%.4f".format(it) }}")
+        }
         hasFrame = true
         _render()
     }
@@ -152,6 +159,10 @@ class VideoPipeline {
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, oesTex)
         GLES20.glUniformMatrix4fv(uTexMatrix, 1, false, texMatrix, 0)
+        // keep linear filtering off the frame's outer texels; some decoders (MStar at 1440p) leave
+        // padding there that changes every frame and shows as a flickering line at the edges
+        val w = videoW.coerceAtLeast(1); val h = videoH.coerceAtLeast(1)
+        GLES20.glUniform2f(uInset, EDGE_TEXELS / w, EDGE_TEXELS / h)
         GLES20.glEnableVertexAttribArray(aPos)
         GLES20.glVertexAttribPointer(aPos, 2, GLES20.GL_FLOAT, false, 0, POS)
         GLES20.glEnableVertexAttribArray(aTex)
@@ -167,6 +178,7 @@ class VideoPipeline {
         aPos = GLES20.glGetAttribLocation(program, "aPos")
         aTex = GLES20.glGetAttribLocation(program, "aTex")
         uTexMatrix = GLES20.glGetUniformLocation(program, "uTexMatrix")
+        uInset = GLES20.glGetUniformLocation(program, "uInset")
         val tex = IntArray(1)
         GLES20.glGenTextures(1, tex, 0)
         oesTex = tex[0]
@@ -222,6 +234,7 @@ class VideoPipeline {
 
     companion object {
         private const val TAG = "VideoPipeline"
+        private const val EDGE_TEXELS = 2f
 
         private val POS = _fb(floatArrayOf(-1f, -1f, 1f, -1f, -1f, 1f, 1f, 1f))
         private val TEX = _fb(floatArrayOf(0f, 0f, 1f, 0f, 0f, 1f, 1f, 1f))
@@ -234,10 +247,11 @@ class VideoPipeline {
             "attribute vec2 aPos;\n" +
             "attribute vec2 aTex;\n" +
             "uniform mat4 uTexMatrix;\n" +
+            "uniform vec2 uInset;\n" +
             "varying vec2 vTex;\n" +
             "void main() {\n" +
             "  gl_Position = vec4(aPos, 0.0, 1.0);\n" +
-            "  vTex = (uTexMatrix * vec4(aTex, 0.0, 1.0)).xy;\n" +
+            "  vTex = (uTexMatrix * vec4(mix(uInset, 1.0 - uInset, aTex), 0.0, 1.0)).xy;\n" +
             "}\n"
 
         private const val FRAG =
