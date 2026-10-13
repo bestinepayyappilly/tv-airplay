@@ -321,6 +321,9 @@ Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeSetHlsEnab
         /* HomeKit + transient pairing (hap.c): video v2 senders only play over such sessions */
         dnssd_set_airplay_features(ctx->dnssd, 46, enabled ? 1 : 0);
         dnssd_set_airplay_features(ctx->dnssd, 48, enabled ? 1 : 0);
+        /* SupportsTLS_PSK: without it macOS refuses to cast a local file ("doesn't support local
+           media content", -17226); with it the Mac serves the file over TLS-PSK (hap/psk_proxy.c) */
+        dnssd_set_airplay_features(ctx->dnssd, 35, enabled ? 1 : 0);
 #endif
     }
 }
