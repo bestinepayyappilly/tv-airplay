@@ -12,7 +12,9 @@ val localProps = Properties().apply {
     rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use(::load)
 }
 
-val allAbis = listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+// -Pabis=armeabi-v7a limits the build to the TV's ABI (android.injected.build.abi marks APKs test-only)
+val allAbis = (findProperty("abis") as String?)?.split(",")?.map { it.trim() }
+    ?: listOf("arm64-v8a", "armeabi-v7a", "x86_64")
 
 android {
     namespace = "io.github.bestinepayyappilly.tvairplay"
