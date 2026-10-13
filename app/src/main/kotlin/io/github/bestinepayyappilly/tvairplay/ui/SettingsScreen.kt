@@ -429,6 +429,7 @@ private fun SettingResolution(
         Prefs.AUTO to stringResource(R.string.chip_auto),
         "1280x720" to "1280x720",
         "1920x1080" to "1920x1080",
+        "2560x1440" to "2560x1440",
         "3840x2160" to "3840x2160"
     )
     val devicePresets = listOf(

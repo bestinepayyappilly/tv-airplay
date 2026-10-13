@@ -36,7 +36,7 @@ Clones of all three are in `reference/`, which is git-ignored.
    - Take wake and Wi-Fi locks only during a session.
 3. **Low-RAM tuning**: *(done except where noted)*
    - Replace the FFmpeg ALAC fallback (about 143 MB of source) with a small ALAC decoder. *(David Hammerton's, via besliky; bit-exact against Apple's encoder)*
-   - Prefer hardware and low-latency decoders, and cap the advertised resolution to the panel (no 4K on a 1080p UI plane).
+   - Prefer hardware and low-latency decoders, and cap the advertised resolution to the panel (no 4K on a 1080p UI plane). *(Auto uses the panel size. A manual size such as 2560x1440 may go above it: senders then send sharper frames at ~60 fps, for about 8 ms more latency on the OnePlus.)*
    - Keep the decoder alive with an `AImageReader` sink when there is no surface. *(already upstream: `VideoPipeline` decodes into its own SurfaceTexture)*
    - Cap the frame cache, add `onTrimMemory` handling, and keep the idle footprint small. *(`onTrimMemory` frees the idle GL pipeline; there is no app-side frame cache to cap)*
 4. **Optional DLNA MediaRenderer** (SSDP, AVTransport, RenderingControl) for Android phone video push.

@@ -33,7 +33,6 @@ import androidx.media.app.NotificationCompat as MediaNotificationCompat
 import io.github.bestinepayyappilly.tvairplay.MainActivity
 import io.github.bestinepayyappilly.tvairplay.Prefs
 import io.github.bestinepayyappilly.tvairplay.R
-import io.github.bestinepayyappilly.tvairplay.fitWithin
 import io.github.bestinepayyappilly.tvairplay.realDisplaySize
 import io.github.bestinepayyappilly.tvairplay.audio.DacpController
 import io.github.bestinepayyappilly.tvairplay.audio.DacpPlayer
@@ -446,10 +445,9 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
         val (rawW, rawH) = realDisplaySize()
         val device = if (portrait != rawH >= rawW) rawH to rawW else rawW to rawH
         if (res == "portrait" || res == "landscape") return device
-        val (w, h) = if (res.contains("x")) {
-            // frames end up on the UI plane, so a larger stream is only decoded to be downscaled
-            res.split("x").let { fitWithin(it[0].toInt(), it[1].toInt(), device.first, device.second) }
-        } else device
+        // a size above the panel is allowed on purpose: senders only pick sharper encodes (and
+        // H.265) when the advertised height is above 1080, even though frames get downscaled
+        val (w, h) = if (res.contains("x")) res.split("x").let { it[0].toInt() to it[1].toInt() } else device
         if (!clamp) return w to h
         // strict decoders black-screen past their limits; advertised size is only upper bound for senders
         val (maxW, maxH) = videoRenderer.maxResolution()
