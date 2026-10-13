@@ -27,9 +27,9 @@ Clones of all three are in `reference/`, which is git-ignored.
 ## Phases
 
 1. **Base builds** for armeabi-v7a, unchanged from upstream. *(done)*
-2. **Always-on**, ported from besliky: *(done; standby discovery verified on the TV, connect-from-standby not yet)*
+2. **Always-on**, ported from besliky: *(done; mirroring from STR standby wakes the TV, verified 2026-10-13)*
    - Bring `MirrorActivity` to the front from the service using the `SYSTEM_ALERT_WINDOW` background-start exemption, with a full-screen-intent fallback. On this TV the overlay permission can be granted with `appops set <pkg> SYSTEM_ALERT_WINDOW allow`.
-   - Wake with `ACQUIRE_CAUSES_WAKEUP` so the TV powers on over CEC.
+   - Wake with `ACQUIRE_CAUSES_WAKEUP` so the TV powers on over CEC. On the OnePlus the wake lock is ignored in STR standby; `MainActivity.setTurnScreenOn` is what actually wakes it.
    - Re-announce mDNS on network change (debounced) and on `SCREEN_ON`.
    - Re-register NSD by unregistering, waiting, then registering, to avoid "Name (2)".
    - Handle `MY_PACKAGE_REPLACED`.
