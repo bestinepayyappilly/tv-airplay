@@ -20,6 +20,13 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 
+#ifdef __ANDROID__
+#include <android/log.h>
+#define PROXY_LOG(...) __android_log_print(ANDROID_LOG_INFO, "PskProxy", __VA_ARGS__)
+#else
+#define PROXY_LOG(...) fprintf(stderr, __VA_ARGS__)
+#endif
+
 #ifndef MSG_NOSIGNAL
 #define MSG_NOSIGNAL 0
 #endif
@@ -163,7 +170,7 @@ static void *serve_connection(void *arg) {
         unsigned long e = ERR_get_error();
         char why[160];
         ERR_error_string_n(e, why, sizeof(why));
-        fprintf(stderr, "psk_proxy: TLS-PSK handshake failed: %s\n", why);
+        PROXY_LOG("TLS-PSK handshake failed: %s\n", why);
         reply_error(fd, "502 Bad Gateway");
         goto done;
     }
@@ -183,11 +190,14 @@ static void *serve_connection(void *arg) {
 
     /* relay the sender's response unchanged until it closes */
     char buf[16384];
+    long long relayed = 0;
     for (;;) {
         int r = SSL_read(ssl, buf, sizeof(buf));
         if (r <= 0) break;
         if (send_all(fd, buf, (size_t) r)) break;
+        relayed += r;
     }
+    PROXY_LOG("%s %s%s%s: %lld bytes\n", method, path, has_range ? " " : "", has_range ? range : "", relayed);
 
 done:
     if (ssl) {

@@ -11,6 +11,7 @@ import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.net.ServerSocket
 import java.net.Socket
+import java.util.concurrent.Executors
 import kotlin.concurrent.thread
 
 /**
@@ -54,6 +55,9 @@ class VideoV2Session(private val player: Player) {
     @Volatile private var pairSecret: ByteArray? = null
     @Volatile private var cipher: HapChannelCipher? = null
     private var cseq = 0
+    // every event-channel write goes through this one thread: never the main thread, and in
+    // order, since each frame's nonce is a counter the sender must see without gaps
+    private val writer = Executors.newSingleThreadExecutor { Thread(it, "Av2EventWrite").apply { isDaemon = true } }
 
     // the queued item and the stream its commands arrive on
     @Volatile private var streamId: Long = -1
@@ -279,7 +283,11 @@ class VideoV2Session(private val player: Player) {
     }
 
     // receiver -> sender request on the event channel, as POST /command with a binary plist body
-    @Synchronized private fun _postBinary(body: ByteArray, extraHeaders: String = ""): Boolean {
+    private fun _postBinary(body: ByteArray, extraHeaders: String = "", onSent: (() -> Unit)? = null) {
+        writer.execute { if (_writeNow(body, extraHeaders)) onSent?.invoke() }
+    }
+
+    @Synchronized private fun _writeNow(body: ByteArray, extraHeaders: String): Boolean {
         val sock = channel ?: return false
         val head = "POST /command RTSP/1.0\r\n" + extraHeaders +
             "CSeq: ${cseq++}\r\n" +
@@ -291,7 +299,9 @@ class VideoV2Session(private val player: Player) {
             sock.getOutputStream().apply { write(wire); flush() }
             true
         } catch (e: Exception) {
-            Log.w(TAG, "event channel write failed", e)
+            // the nonce counter has moved on: the channel can't be used again
+            Log.w(TAG, "event channel write failed; closing it", e)
+            try { sock.close() } catch (_: Exception) {}
             false
         }
     }
@@ -303,7 +313,7 @@ class VideoV2Session(private val player: Player) {
             return
         }
         val body = PlistXml.toBinary(linkedMapOf("type" to "updateInfo", "value" to value)) ?: return
-        if (_postBinary(body)) Log.i(TAG, "sent updateInfo")
+        _postBinary(body) { Log.i(TAG, "sent updateInfo") }
     }
 
     @Synchronized fun stop() {
