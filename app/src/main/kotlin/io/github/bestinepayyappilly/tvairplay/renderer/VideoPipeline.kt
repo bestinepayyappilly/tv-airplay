@@ -37,11 +37,16 @@ class VideoPipeline {
 
     private var surfaceTexture: SurfaceTexture? = null
     var inputSurface: Surface? = null; private set
+    // called on the GL thread after a decoded frame is swapped to the display, with its timestamp (ns)
+    var onDrawn: ((Long) -> Unit)? = null
 
     @Volatile private var frameAvailable = false
     private var pendingDisplay: Surface? = null
     private var displayDirty = false
     @Volatile private var videoW = 0
+    // one-off request: paint the last frame onto a surface, then disconnect from it
+    private var handOff: Surface? = null
+    private var handOffDone = false
     @Volatile private var videoH = 0
 
     fun start() = synchronized(lock) {
@@ -55,6 +60,23 @@ class VideoPipeline {
         pendingDisplay = surface
         displayDirty = true
         lock.notifyAll()
+    }
+
+    // shows the last decoded frame on surface and lets go of it so a decoder can render there
+    // directly; blocks until done. false when there was nothing to paint or it timed out
+    fun paintAndRelease(surface: Surface): Boolean = synchronized(lock) {
+        if (!running || !hasFrame) return@synchronized false
+        handOff = surface
+        handOffDone = false
+        lock.notifyAll()
+        val deadline = System.currentTimeMillis() + HANDOFF_WAIT_MS
+        while (running && !handOffDone) {
+            val left = deadline - System.currentTimeMillis()
+            if (left <= 0) break
+            lock.wait(left)
+        }
+        handOff = null
+        handOffDone
     }
 
     fun setVideoSize(w: Int, h: Int) {
@@ -91,8 +113,10 @@ class VideoPipeline {
             var newDisplay: Surface? = null
             var displayChanged = false
             var doFrame = false
+            var paintOnce: Surface? = null
             synchronized(lock) {
-                while (running && !frameAvailable && !displayDirty) lock.wait()
+                while (running && !frameAvailable && !displayDirty && handOff == null) lock.wait()
+                if (running) paintOnce = handOff
                 if (running && displayDirty) {
                     newDisplay = pendingDisplay
                     displayChanged = true
@@ -106,6 +130,11 @@ class VideoPipeline {
             if (!running) break
             if (displayChanged) _bindDisplay(newDisplay)
             if (doFrame) _consumeAndDraw()
+            paintOnce?.let {
+                _bindDisplay(it)
+                _bindDisplay(null)
+                synchronized(lock) { handOff = null; handOffDone = true; lock.notifyAll() }
+            }
         }
         _releaseGl()
     }
@@ -150,6 +179,7 @@ class VideoPipeline {
         }
         hasFrame = true
         _render()
+        onDrawn?.invoke(st.timestamp)
     }
 
     private fun _render() {
@@ -235,6 +265,7 @@ class VideoPipeline {
     companion object {
         private const val TAG = "VideoPipeline"
         private const val EDGE_TEXELS = 2f
+        private const val HANDOFF_WAIT_MS = 500L
 
         private val POS = _fb(floatArrayOf(-1f, -1f, 1f, -1f, -1f, 1f, 1f, 1f))
         private val TEX = _fb(floatArrayOf(0f, 0f, 1f, 0f, 0f, 1f, 1f, 1f))
