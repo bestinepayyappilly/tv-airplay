@@ -206,6 +206,8 @@ class VideoPipeline {
     }
 
     private fun _releaseGl() {
+        // a restarted pipeline has a fresh texture with nothing in it
+        hasFrame = false
         surfaceTexture?.release()
         surfaceTexture = null
         inputSurface?.release()

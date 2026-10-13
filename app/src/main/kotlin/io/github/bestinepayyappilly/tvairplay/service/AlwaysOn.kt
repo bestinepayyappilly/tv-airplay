@@ -43,6 +43,8 @@ class AlwaysOn(private val ctx: Context) {
     private val network = NetworkMonitor(ctx, ::onNetworkChanged)
 
     private var registration: Advertiser.Registration? = null
+    // the first report after start describes the network we just registered on
+    private var networkSeen = false
     private var multicastLock: WifiManager.MulticastLock? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
@@ -69,6 +71,7 @@ class AlwaysOn(private val ctx: Context) {
 
     fun stop() = onMain {
         registration = null
+        networkSeen = false
         advertiser.withdraw()
         network.stop()
         screenReceiver?.let { try { ctx.unregisterReceiver(it) } catch (_: Exception) {} }
@@ -86,11 +89,13 @@ class AlwaysOn(private val ctx: Context) {
 
     private fun onNetworkChanged(snapshot: NetworkMonitor.Snapshot) {
         val reg = registration ?: return
+        val first = !networkSeen
+        networkSeen = true
         if (snapshot.available) {
             // a new address must be announced again; a first network only needs the registration
             val wasPublished = advertiser.isPublished
             advertiser.publish(reg)
-            if (wasPublished) advertiser.refresh()
+            if (wasPublished && !first) advertiser.refresh()
         } else {
             advertiser.withdraw()
         }

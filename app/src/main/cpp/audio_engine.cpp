@@ -34,7 +34,7 @@ struct AudioConfig {
     const int staticCushionMs;   // 0 = adaptive tuner
     const int percentilePct;     // adaptive tuner target percentile
     const int oboeBufferFrames;  // 0 = auto, two bursts in low-latency mode, oboe default in power save
-    const bool forceSwAlac;      // embedded ffmpeg software ALAC even when HW available
+    const bool forceSwAlac;      // embedded software ALAC even when HW available
     const bool realtimePriority; // decoder: request realtime priority
     const bool lowLatency;       // low-latency decoder + oboe low-latency output
     const bool benchmarkLog;     // periodically log decoder stats

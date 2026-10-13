@@ -62,7 +62,7 @@ Check out the [CI](https://github.com/jqssun/android-airplay-server/blob/main/.g
 ## Credits
 
 - [UxPlay](https://github.com/FDH2/UxPlay) for the AirPlay/RAOP server implementation
-- [FFmpeg](https://ffmpeg.org) for the lossless audio decoder
+- David Hammerton's ALAC decoder (MIT), as hardened by [besliky/airplay-tv](https://github.com/besliky/airplay-tv), for the lossless audio decoder
 - [Next Player](https://github.com/anilbeesetti/nextplayer) for the video player
 
 ---

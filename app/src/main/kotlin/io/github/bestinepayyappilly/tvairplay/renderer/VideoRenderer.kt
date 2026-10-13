@@ -22,6 +22,8 @@ class VideoRenderer(ctx: Context) {
     private var videoWidth = 0
     private var videoHeight = 0
     private var firstFrameQueued = false
+    // pipeline was torn down, so its display binding must be restored on restart
+    private var pipelineReleased = false
 
     // stats
     @Volatile var fps = 0; private set
@@ -84,6 +86,14 @@ class VideoRenderer(ctx: Context) {
 
     // codec per mirror session; pipeline persists across sessions
     fun startSession() = synchronized(lock) { _resetStats() }
+
+    // frees the GL thread, EGL context and texture while idle; startCodec brings them back
+    fun trimIdle() = synchronized(lock) {
+        if (codec != null || pipelineReleased) return@synchronized
+        pipeline.release()
+        pipelineReleased = true
+        Log.i(TAG, "idle: released video pipeline")
+    }
 
     fun stopSession() = synchronized(lock) { stopCodec() }
 
@@ -185,6 +195,10 @@ class VideoRenderer(ctx: Context) {
 
     private fun startCodec(h265: Boolean) {
         pipeline.start()
+        if (pipelineReleased) {
+            pipelineReleased = false
+            displaySurface?.let { pipeline.setDisplaySurface(it) }
+        }
         pipeline.setVideoSize(videoWidth, videoHeight)
         val s = pipeline.inputSurface ?: return
         currentH265 = h265
@@ -287,6 +301,7 @@ class VideoRenderer(ctx: Context) {
     fun release() = synchronized(lock) {
         stopCodec()
         pipeline.release()
+        pipelineReleased = true
         _resetStats()
     }
 

@@ -37,9 +37,6 @@ endif()
 # ---------- Oboe (low-latency audio output, via prefab AAR) ----------
 find_package(oboe REQUIRED CONFIG)
 
-# ---------- ffmpeg (software ALAC decoder) ----------
-include(BuildFFmpeg)
-
 # ---------- libplist (built from submodule source) ----------
 set(PLIST_SRC third_party/libplist/src)
 set(PLIST_CNARY third_party/libplist/libcnary)
@@ -121,6 +118,7 @@ set(BRIDGE_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/android_raop_callbacks.c
     ${CMAKE_CURRENT_SOURCE_DIR}/native_bridge.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/audio_engine.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/alac/alac.c
 )
 
 # ---------- Final shared library ----------
@@ -128,7 +126,6 @@ add_library(airplay_native SHARED
     ${AIRPLAY_SOURCES}
     ${BRIDGE_SOURCES}
 )
-add_dependencies(airplay_native ffmpeg_ep)
 
 target_include_directories(airplay_native PRIVATE
     ${UXPLAY_LIB}
@@ -152,7 +149,6 @@ target_link_libraries(airplay_native
     crypto
     plist
     oboe::oboe
-    ffmpeg::avcodec
     mediandk
     m
     log

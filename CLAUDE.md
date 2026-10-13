@@ -18,12 +18,12 @@ idle memory small.
 
 ```sh
 export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" ANDROID_HOME=~/Library/Android/sdk
-git submodule update --init --depth 1          # UxPlay, OpenSSL, libplist, FFmpeg
+git submodule update --init --depth 1          # UxPlay, OpenSSL, libplist
 ./gradlew assembleDebug -Pandroid.injected.build.abi=armeabi-v7a
 # output: app/build/intermediates/apk/debug/app-debug.apk
 ```
 
-- A clean build takes about 2.5 min, because OpenSSL and FFmpeg compile from source. `adb` is at `~/Library/Android/sdk/platform-tools/adb`; it is not on PATH.
+- A clean build takes under a minute; OpenSSL compiles from source. `adb` is at `~/Library/Android/sdk/platform-tools/adb`; it is not on PATH.
 - The NDK is pinned to `27.1.12297006` in `app/build.gradle.kts`, which is the version installed locally. Upstream uses 27.0.
 - There are no unit tests. Verify changes by building, and on the TV only when the user asks.
 
@@ -34,6 +34,7 @@ git submodule update --init --depth 1          # UxPlay, OpenSSL, libplist, FFmp
   - `discovery/Advertiser.kt` advertises `_airplay._tcp` and `_raop._tcp` through NsdManager; `service/AlwaysOn.kt` re-announces on network change and SCREEN_ON, wakes the TV and holds session locks.
   - `renderer/`: mirroring is MediaCodec, then a SurfaceTexture, then GL, then a SurfaceView. HLS goes through ExoPlayer.
 - `app/src/main/cpp/`: the JNI bridge (`native_bridge.cpp`), audio (native AMediaCodec and Oboe), and `android_dnssd_shim.c`, which only stores TXT records.
+  - `alac/`: software ALAC decoder (David Hammerton, MIT, hardened by besliky). Used when the hardware ALAC decoder is missing or "force software ALAC" is on.
 - `app/src/main/cpp/third_party/`: git submodules. **Don't edit UxPlay in place.**
   - Add a numbered `.patch` to `app/src/main/cpp/patches/UxPlay/`.
   - The `applyUxplayPatches` Gradle task resets the touched files and reapplies every patch before CMake runs.
