@@ -54,6 +54,8 @@ class VideoV2Session(private val player: Player) {
     // secret of the last HomeKit pairing; the event channel and the media key derive from it
     @Volatile private var pairSecret: ByteArray? = null
     @Volatile private var cipher: HapChannelCipher? = null
+    // the channel updateInfo went out on; once per channel
+    @Volatile private var infoSentOn: Socket? = null
     private var cseq = 0
     // every event-channel write goes through this one thread: never the main thread, and in
     // order, since each frame's nonce is a counter the sender must see without gaps
@@ -86,8 +88,14 @@ class VideoV2Session(private val player: Player) {
     // the sender left: a later legacy-paired session must not inherit this pairing's keys
     fun onSessionEnd() {
         _endItem(stopPlayer = false)
-        pairSecret = null
-        recorded = false
+        synchronized(this) {
+            pairSecret = null
+            recorded = false
+            // its channel and cipher belong to this session: a new one must not write with them
+            try { channel?.close() } catch (_: Exception) {}
+            channel = null
+            cipher = null
+        }
     }
 
     fun onInfo(xml: ByteArray) {
@@ -307,7 +315,9 @@ class VideoV2Session(private val player: Player) {
     }
 
     private fun _sendUpdateInfo() {
-        if (!recorded || channel == null) return
+        val sock = channel
+        if (!recorded || sock == null || infoSentOn === sock) return
+        infoSentOn = sock
         val value = info?.let { PlistXml.parse(it) } ?: run {
             Log.w(TAG, "no /info reply cached; cannot send updateInfo")
             return
@@ -331,12 +341,16 @@ class VideoV2Session(private val player: Player) {
         while (!s.isClosed) {
             val sock = try { s.accept() } catch (_: Exception) { return }
             Log.i(TAG, "event channel connected from ${sock.inetAddress.hostAddress}")
-            channel?.let { try { it.close() } catch (_: Exception) {} }
-            channel = sock
-            cipher = pairSecret?.let {
+            val newCipher = pairSecret?.let {
                 HapChannelCipher(it, "Events-Salt", "Events-Read-Encryption-Key", "Events-Write-Encryption-Key")
             }
-            Log.i(TAG, "event channel ${if (cipher != null) "encrypted" else "plaintext"}")
+            // channel and cipher change together: a write in between would use the old key
+            synchronized(this) {
+                channel?.let { try { it.close() } catch (_: Exception) {} }
+                channel = sock
+                cipher = newCipher
+            }
+            Log.i(TAG, "event channel ${if (newCipher != null) "encrypted" else "plaintext"}")
             thread(name = "Av2EventRead", isDaemon = true) { _readLoop(sock.getInputStream()) }
             // RECORD may already have happened
             _sendUpdateInfo()
