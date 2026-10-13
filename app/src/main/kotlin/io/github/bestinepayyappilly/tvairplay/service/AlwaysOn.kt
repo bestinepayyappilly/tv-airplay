@@ -29,7 +29,7 @@ import io.github.bestinepayyappilly.tvairplay.discovery.NetworkMonitor
  * Keeps the receiver reachable while the TV idles and brings it forward when a sender connects:
  * - publishes mDNS for the server's lifetime and re-announces it on network change and SCREEN_ON
  * - holds wake and Wi-Fi locks only while a session is open
- * - wakes the screen (the panel, or the TV over HDMI-CEC) and opens the app on connect, falling
+ * - wakes the screen (the panel, or the TV over HDMI-CEC) and opens the app once a session is real, falling
  *   back to a full-screen-intent notification when background starts are blocked
  *
  * Public methods may be called from any thread; work runs on the main thread.
@@ -103,9 +103,9 @@ class AlwaysOn(private val ctx: Context) {
 
     // ---- session ----
 
+    // locks only: a tcp connect alone may be a port probe, so waking waits for bringToFront
     fun sessionStarted() = onMain {
         acquireSessionLocks()
-        wakeScreen()
     }
 
     fun sessionEnded() = onMain {

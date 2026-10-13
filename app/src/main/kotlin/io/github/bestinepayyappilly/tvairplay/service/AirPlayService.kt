@@ -178,6 +178,7 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
     var logCallback: ((String) -> Unit)? = null
 
     @Volatile private var _lastPin: String? = null
+    @Volatile private var _sessionSurfaced = false
     var pinCallback: ((String?) -> Unit)? = null
         set(value) {
             field = value
@@ -504,6 +505,7 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
         _durationMs.value = 0
         _serverState.value = ServerState.STOPPED
         _connectionCount.value = 0
+        _sessionSurfaced = false
         _refreshDacpPlayer()
         stopForeground(STOP_FOREGROUND_REMOVE)
         foregroundStarted = false
@@ -613,6 +615,7 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
         airPlayVideoPlayer.play(location, startPositionSeconds)
         // claim media-button routing for keys that arrive as media-session events
         mediaSession?.isActive = true
+        _surfaceSession()
         log("AirPlay Video play: $location @ ${startPositionSeconds}s")
     }
 
@@ -635,6 +638,7 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
             // pure music streaming (not screen mirroring audio)
             _setAudioOnly(true)
         }
+        _surfaceSession()
         log("Audio format: ct=$ct spf=$spf screen=$usingScreen")
     }
 
@@ -645,6 +649,7 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
             _videoResolution.value = "${w.toInt()}x${h.toInt()}"
             videoRenderer.setResolution(w.toInt(), h.toInt())
             _mirroringActive.value = true
+            _surfaceSession()
         }
         log("Video size: ${srcW}x${srcH} -> ${w}x${h}")
     }
@@ -710,17 +715,23 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
         _connectionCount.value++
         log("Client connected (${_connectionCount.value})")
         if (!firstConnection) return
+        // conn_init is only a tcp pre-auth signal (a port probe triggers it too), so it takes
+        // the session locks but must not wake the TV; _surfaceSession() does that on the first
+        // real AirPlay event. pin-required sessions surface on onDisplayPin, once the pin is current
         alwaysOn.sessionStarted()
-        // conn_init is only a tcp pre-auth signal. pin-required sessions must wait for
-        // onDisplayPin, otherwise the server ui can move before the client pin is current
-        if (requiresPin()) return
-        if (!shouldLaunchOnConnect()) return
-        alwaysOn.bringToFront()
+    }
+
+    // first authenticated event of a session: wake the TV and bring the app forward, once
+    private fun _surfaceSession() {
+        if (_sessionSurfaced || _connectionCount.value == 0) return
+        _sessionSurfaced = true
+        if (shouldLaunchOnConnect()) alwaysOn.bringToFront()
     }
 
     override fun onConnectionDestroy() {
         _connectionCount.value = (_connectionCount.value - 1).coerceAtLeast(0)
         if (_connectionCount.value == 0) {
+            _sessionSurfaced = false
             alwaysOn.sessionEnded()
             // clients may drop without POST /stop; must run before the poll-state reset
             _endVideoPlayback("AirPlay Video stopped (disconnect)")
@@ -760,7 +771,7 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
         pinCallback?.invoke(pin)
         _updateMediaNotification()
         // the pin is current now, so the screen showing it can come forward
-        if (shouldLaunchOnConnect()) alwaysOn.bringToFront()
+        _surfaceSession()
     }
 
     override fun onMetadata(data: ByteArray) {
@@ -1020,10 +1031,6 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
         )
         foregroundStarted = true
-    }
-
-    private fun requiresPin(): Boolean {
-        return prefs.getBoolean(Prefs.REQUIRE_PIN, Prefs.DEF_REQUIRE_PIN)
     }
 
     private fun shouldLaunchOnConnect(): Boolean {
