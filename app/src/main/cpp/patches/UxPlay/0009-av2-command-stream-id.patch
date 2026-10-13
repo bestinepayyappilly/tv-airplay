@@ -1,0 +1,24 @@
+--- a/lib/raop.h
++++ b/lib/raop.h
+@@ -115,7 +115,7 @@
+        stream, and POST /command bodies (binary plist). av2_command may set a binary plist reply */
+     unsigned short (*av2_event_port) (void *cls);
+     void  (*av2_stream_setup) (void *cls, uint64_t stream_id);
+-    void  (*av2_command) (void *cls, const char *data, int datalen, char **reply, int *reply_len);
++    void  (*av2_command) (void *cls, const char *stream_id, const char *data, int datalen, char **reply, int *reply_len);
+     /* the /info reply (binary plist), which v2 receivers repeat as updateInfo after RECORD */
+     void  (*av2_info) (void *cls, const char *data, int datalen);
+     void  (*av2_record) (void *cls);
+--- a/lib/raop_handlers.h
++++ b/lib/raop_handlers.h
+@@ -1224,7 +1224,9 @@
+     char *reply = NULL;
+     int reply_len = 0;
+     if (raop->callbacks.av2_command) {
+-        raop->callbacks.av2_command(raop->callbacks.cls, data, datalen, &reply, &reply_len);
++        /* playback (type-130) stream commands name their stream; session-level ones don't */
++        const char *stream_id = http_request_get_header(request, "X-Apple-StreamID");
++        raop->callbacks.av2_command(raop->callbacks.cls, stream_id, data, datalen, &reply, &reply_len);
+     }
+     if (reply && reply_len > 0) {
+         *response_data = reply;

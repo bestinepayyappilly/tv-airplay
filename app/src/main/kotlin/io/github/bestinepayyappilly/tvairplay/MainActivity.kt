@@ -66,6 +66,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         _applyTurnScreenOn(intent)
+        _applySessionLaunch(intent)
         enableEdgeToEdge()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -124,6 +125,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         _applyTurnScreenOn(intent)
+        _applySessionLaunch(intent)
         // the session that brought the app forward is over: show what was there before
         if (intent.getBooleanExtra(AlwaysOn.EXTRA_MOVE_TO_BACK, false) && service?.connectionCount?.value == 0) {
             moveTaskToBack(true)
@@ -134,6 +136,12 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         // one-shot: once shown, later resumes must not wake a TV the user turned off
         window.decorView.post { _setTurnScreenOn(false) }
+    }
+
+    private fun _applySessionLaunch(intent: Intent?) {
+        if (intent?.getBooleanExtra(AlwaysOn.EXTRA_SESSION_LAUNCH, false) != true) return
+        intent.removeExtra(AlwaysOn.EXTRA_SESSION_LAUNCH)
+        viewModel.onSessionLaunch()
     }
 
     private fun _applyTurnScreenOn(intent: Intent?) {

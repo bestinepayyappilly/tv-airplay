@@ -1,0 +1,312 @@
+--- a/lib/httpd.h
++++ b/lib/httpd.h
+@@ -42,6 +42,8 @@
+ void httpd_remove_connections_by_type(httpd_t *httpd, connection_type_t type);
+ 
+ int httpd_set_connection_type (httpd_t *http, void *user_data, connection_type_t type);
++/* HomeKit pairing: encrypt this connection, starting after the response being prepared */
++int httpd_set_connection_cipher (httpd_t *http, void *user_data, void *cipher);
+ int httpd_count_connection_type (httpd_t *http, connection_type_t type);
+ int httpd_get_connection_socket (httpd_t *httpd, void *user_data);
+ int httpd_get_connection_socket_by_type (httpd_t *httpd, connection_type_t type, int instance);
+--- a/lib/httpd.c
++++ b/lib/httpd.c
+@@ -15,6 +15,7 @@
+  * modified by fduncanh 2022-2026
+  */
+ 
++#include "hap/hap.h"
+ #include <stdlib.h>
+ #include <string.h>
+ #include <stdio.h>
+@@ -44,6 +45,10 @@
+     connection_type_t type;
+     http_request_t *request;
+     int pending_remove;
++    /* HomeKit-paired connections are ChaCha20-Poly1305 framed (hap.h); next takes over after
++       the response that completes pairing */
++    hap_cipher_t *cipher;
++    hap_cipher_t *cipher_next;
+ };
+ typedef struct http_connection_s http_connection_t;
+ 
+@@ -101,6 +106,19 @@
+ }
+   
+ int
++httpd_set_connection_cipher (httpd_t *httpd, void *user_data, void *cipher) {
++    for (int i = 0; i < httpd->max_connections; i++) {
++        http_connection_t *connection = &httpd->connections[i];
++        if (connection->connected && connection->user_data == user_data) {
++            hap_cipher_free(connection->cipher_next);
++            connection->cipher_next = (hap_cipher_t *) cipher;
++            return 0;
++        }
++    }
++    return -1;
++}
++
++int
+ httpd_count_connection_type (httpd_t *httpd, connection_type_t type) {
+     int count = 0;
+     for (int i = 0; i < httpd->max_connections; i++) {
+@@ -220,6 +238,10 @@
+         http_request_destroy(connection->request);
+         connection->request = NULL;
+     }
++    hap_cipher_free(connection->cipher);
++    hap_cipher_free(connection->cipher_next);
++    connection->cipher = NULL;
++    connection->cipher_next = NULL;
+     logger_log(httpd->logger, LOGGER_DEBUG, "removing connection type %s socket %d conn %p", typename[connection->type],
+                socket_fd, connection->user_data);
+     if (connection->user_data) {
+@@ -495,7 +517,40 @@
+             }
+             /* reverse-http responses from the client must not be sent to the llhttp parser:
+              * such messages start with "HTTP/1.1" (or sometimes with "EVENT/1.0")  */
+-            if (new_request) {
++            if (connection->cipher) {
++                int ret = recv(connection->socket_fd, buffer, sizeof(buffer), 0);
++                if (ret == 0) {
++                    httpd_remove_connection(httpd, connection, 0);
++                    continue;
++                } else if (ret == -1) {
++                    if (errno == SOCKET_ERRORNAME(EAGAIN) || errno == SOCKET_ERRORNAME(EWOULDBLOCK) || errno == SOCKET_ERRORNAME(EINTR)) {
++                        continue;
++                    }
++                    httpd_remove_connection(httpd, connection, SOCKET_GET_ERROR());
++                    continue;
++                }
++                uint8_t *plain = NULL;
++                int plen = hap_cipher_decrypt(connection->cipher, (const uint8_t *) buffer, (size_t) ret, &plain);
++                if (plen < 0) {
++                    logger_log(httpd->logger, LOGGER_ERR, "httpd: decryption failed on socket %d", connection->socket_fd);
++                    httpd_remove_connection(httpd, connection, 0);
++                    continue;
++                }
++                if (plen == 0) {
++                    /* partial frame; wait for the rest */
++                    continue;
++                }
++                /* a kept partial frame plus this read can exceed the buffer: parse the excess first */
++                int off = 0;
++                while (plen - off > (int) sizeof(buffer) - 1) {
++                    http_request_add_data(connection->request, (const char *) plain + off, (int) sizeof(buffer) - 1);
++                    off += (int) sizeof(buffer) - 1;
++                }
++                memcpy(buffer, plain + off, plen - off);
++                free(plain);
++                recv_datalen = plen - off;
++                new_request = 0;
++            } else if (new_request) {
+                 int readstart = 0;
+                 new_request = 0;
+                 while (readstart < 8) {
+@@ -592,6 +647,16 @@
+ 
+                     /* Get response data and datalen */
+                     data = http_response_get_data(response, &datalen);
++                    uint8_t *sealed = NULL;
++                    if (connection->cipher) {
++                        int slen = hap_cipher_encrypt(connection->cipher, (const uint8_t *) data, (size_t) datalen, &sealed);
++                        if (slen < 0) {
++                            logger_log(httpd->logger, LOGGER_ERR, "httpd: encryption failed");
++                            slen = 0;
++                        }
++                        data = (const char *) sealed;
++                        datalen = slen;
++                    }
+ 
+                     written = 0;
+                     while (written < datalen) {
+@@ -602,6 +667,13 @@
+                         }
+                         written += ret;
+                     }
++                    free(sealed);
++                    if (connection->cipher_next) {
++                        /* pairing just completed: everything after this reply is encrypted */
++                        hap_cipher_free(connection->cipher);
++                        connection->cipher = connection->cipher_next;
++                        connection->cipher_next = NULL;
++                    }
+ 
+                     if (http_response_get_disconnect(response)) {
+                         logger_log(httpd->logger, LOGGER_INFO, "Disconnecting on software request");
+--- a/lib/raop.h
++++ b/lib/raop.h
+@@ -119,6 +119,8 @@
+     /* the /info reply (binary plist), which v2 receivers repeat as updateInfo after RECORD */
+     void  (*av2_info) (void *cls, const char *data, int datalen);
+     void  (*av2_record) (void *cls);
++    /* HomeKit transient pairing completed: 64-byte secret for the event channel keys */
++    void  (*hap_paired) (void *cls, const unsigned char *secret, int len);
+ };
+ 
+ typedef struct raop_callbacks_s raop_callbacks_t;
+--- a/lib/raop.c
++++ b/lib/raop.c
+@@ -14,6 +14,7 @@
+  * modified by fduncanh 2021-23
+  */
+ 
++#include "hap/hap.h"
+ #include <stdlib.h>
+ #include <stdio.h>
+ #include <string.h>
+@@ -122,6 +123,11 @@
+     char *client_session_id;
+     bool authenticated;
+     bool have_active_remote;
++
++    /* HomeKit transient pairing (X-Apple-HKP), which AirPlay video v2 senders use */
++    hap_pair_setup_t *hap_setup;
++    unsigned char hap_secret[HAP_SECRET_LEN];
++    bool hap_paired;
+ };
+ typedef struct raop_conn_s raop_conn_t;
+ 
+@@ -573,6 +579,8 @@
+         /* This is done in case TEARDOWN was not called */
+         raop_rtp_mirror_destroy(conn->raop_rtp_mirror);
+     }
++    hap_pair_setup_free(conn->hap_setup);
++    conn->hap_setup = NULL;
+     if (conn->raop_ntp) {
+         raop_ntp_destroy(conn->raop_ntp);
+     }
+--- a/lib/raop_handlers.h
++++ b/lib/raop_handlers.h
+@@ -272,6 +272,10 @@
+                           http_request_t *request, http_response_t *response,
+                           char **response_data, int *response_datalen) {
+     raop_t *raop = conn->raop;
++    if (http_request_get_header(request, "X-Apple-HKP")) {
++        /* HomeKit transient pairing (PIN 3939) follows: nothing to show */
++        return;
++    }
+     logger_log(raop->logger, LOGGER_INFO, "client sent PAIR-PIN-START request");
+     int pin_4 = 0;
+     if (raop->pin > 9999) {
+@@ -460,6 +464,41 @@
+     unsigned char public_key[ED25519_KEY_SIZE];
+     //const char *data;
+     int datalen = 0;
++
++    if (http_request_get_header(request, "X-Apple-HKP")) {
++        /* HomeKit transient pair-setup (TLV8, SRP-6a); encryption starts after M4 */
++        const char *body = http_request_get_data(request, &datalen);
++        if (!conn->hap_setup) conn->hap_setup = hap_pair_setup_new();
++        uint8_t *out = NULL;
++        size_t outlen = 0;
++        int done = 0;
++        if (!conn->hap_setup || !body ||
++            hap_pair_setup_handle(conn->hap_setup, (const uint8_t *) body, (size_t) datalen, &out, &outlen, &done)) {
++            logger_log(raop->logger, LOGGER_ERR, "HomeKit pair-setup failed");
++            http_response_init(response, "RTSP/1.0", 470, "Connection Authorization Required");
++            return;
++        }
++        *response_data = (char *) out;
++        *response_datalen = (int) outlen;
++        http_response_add_header(response, "Content-Type", "application/octet-stream");
++        if (done) {
++            memcpy(conn->hap_secret, hap_pair_setup_secret(conn->hap_setup), HAP_SECRET_LEN);
++            conn->hap_paired = true;
++            hap_cipher_t *cipher = hap_cipher_new(conn->hap_secret, HAP_SECRET_LEN, "Control-Salt",
++                                                  "Control-Write-Encryption-Key", "Control-Read-Encryption-Key");
++            if (!cipher || httpd_set_connection_cipher(raop->httpd, conn, cipher)) {
++                hap_cipher_free(cipher);
++                logger_log(raop->logger, LOGGER_ERR, "HomeKit pairing: cannot encrypt connection");
++                http_response_set_disconnect(response, 1);
++                return;
++            }
++            logger_log(raop->logger, LOGGER_ERR, "HomeKit transient pairing complete");
++            if (raop->callbacks.hap_paired) {
++                raop->callbacks.hap_paired(raop->callbacks.cls, conn->hap_secret, HAP_SECRET_LEN);
++            }
++        }
++        return;
++    }
+ 
+     //data =
+     http_request_get_data(request, &datalen);
+@@ -602,6 +641,64 @@
+                      char **response_data, int *response_datalen)
+ {
+     http_response_add_header(response, "Public", "SETUP, RECORD, FLUSH, TEARDOWN, OPTIONS, GET_PARAMETER, SET_PARAMETER");
++}
++
++static void
++raop_handler_setup_hap_session(raop_conn_t *conn, http_request_t *request,
++                               plist_t req_root_node, plist_t res_root_node)
++{
++    raop_t *raop = conn->raop;
++    char *device_id = NULL, *model = NULL, *name = NULL;
++    bool admit_client = true;
++    plist_get_string_val(plist_dict_get_item(req_root_node, "deviceID"), &device_id);
++    plist_get_string_val(plist_dict_get_item(req_root_node, "model"), &model);
++    plist_get_string_val(plist_dict_get_item(req_root_node, "name"), &name);
++    if (raop->callbacks.report_client_request) {
++        raop->callbacks.report_client_request(raop->callbacks.cls, device_id, model, name, &admit_client);
++    }
++    plist_mem_free(device_id);
++    plist_mem_free(model);
++    plist_mem_free(name);
++
++    timing_protocol_t time_protocol = NTP;
++    uint64_t timing_rport = 0;
++    plist_get_uint_val(plist_dict_get_item(req_root_node, "timingPort"), &timing_rport);
++    unsigned short timing_lport = raop->timing_lport;
++    char remote[40] = { 0 };
++    utils_ipaddress_to_string(conn->remotelen, conn->remote, conn->zone_id, remote, (int) sizeof(remote));
++    if (!conn->raop_ntp) {
++        conn->raop_ntp = raop_ntp_init(raop->logger, &raop->callbacks, remote,
++                                       conn->remotelen, (unsigned short) timing_rport, &time_protocol);
++        raop_ntp_start(conn->raop_ntp, &timing_lport);
++    }
++
++    unsigned short event_port = 0;
++    if (raop->callbacks.av2_event_port) {
++        event_port = raop->callbacks.av2_event_port(raop->callbacks.cls);
++        plist_t combined_node = plist_dict_get_item(req_root_node, "combinedGetInfoWithControlSetup");
++        uint8_t combined = 0;
++        if (combined_node) plist_get_bool_val(combined_node, &combined);
++        if (combined) {
++            http_response_t *info_response = http_response_create();
++            http_response_init(info_response, "RTSP/1.0", 200, "OK");
++            char *info_data = NULL;
++            int info_len = 0;
++            raop_handler_info(conn, request, info_response, &info_data, &info_len);
++            if (info_data && info_len > 0) {
++                plist_t info_node = NULL;
++                plist_from_bin(info_data, (uint32_t) info_len, &info_node);
++                if (info_node) {
++                    plist_dict_merge(&res_root_node, info_node);
++                    plist_free(info_node);
++                }
++            }
++            free(info_data);
++            http_response_destroy(info_response);
++        }
++    }
++    plist_dict_set_item(res_root_node, "timingPort", plist_new_uint(timing_lport));
++    plist_dict_set_item(res_root_node, "eventPort", plist_new_uint(event_port));
++    logger_log(raop->logger, LOGGER_ERR, "HomeKit session SETUP: eport = %d, tport = %d", event_port, timing_lport);
+ }
+ 
+ static void
+@@ -638,7 +735,12 @@
+     // For the response
+     plist_t res_root_node = plist_new_dict();
+ 
+-    if (PLIST_IS_DATA(req_eiv_node) && PLIST_IS_DATA(req_ekey_node)) {
++    if (conn->hap_paired && !PLIST_IS_DATA(req_ekey_node) &&
++        plist_dict_get_item(req_root_node, "timingProtocol")) {
++        /* first SETUP of a HomeKit-paired session: no FairPlay keys (the channel itself is
++           encrypted); set up timing and the event channel, and hand over the sender's name */
++        raop_handler_setup_hap_session(conn, request, req_root_node, res_root_node);
++    } else if (PLIST_IS_DATA(req_eiv_node) && PLIST_IS_DATA(req_ekey_node)) {
+         // The first SETUP call that initializes keys and timing
+ 
+         unsigned char aesiv[16] = { 0 };

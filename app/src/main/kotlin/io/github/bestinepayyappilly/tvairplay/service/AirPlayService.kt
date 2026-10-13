@@ -46,6 +46,7 @@ import io.github.bestinepayyappilly.tvairplay.discovery.Advertiser
 import io.github.bestinepayyappilly.tvairplay.download.VideoDownloader
 import io.github.bestinepayyappilly.tvairplay.renderer.AirPlayVideoPlayer
 import io.github.bestinepayyappilly.tvairplay.renderer.AudioRenderer
+import io.github.bestinepayyappilly.tvairplay.renderer.PlaybackSnapshot
 import io.github.bestinepayyappilly.tvairplay.renderer.VideoRenderer
 import io.github.bestinepayyappilly.tvairplay.viewmodel.DebugInfo
 import java.net.NetworkInterface
@@ -133,6 +134,17 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
     // set once mirroring reports a real size; stops with session
     private val _mirroringActive = MutableStateFlow(false)
     val mirroringActive = _mirroringActive.asStateFlow()
+
+    // sender's device name from its session setup; null until a real session starts
+    private val _senderName = MutableStateFlow<String?>(null)
+    val senderName = _senderName.asStateFlow()
+
+    // a mirrored frame has reached the screen this session
+    val mirrorFrameShown: Boolean get() = videoRenderer.frameShown
+
+    // the session sent its first real AirPlay event (the one that brings the app forward); a
+    // sender that only sets up (macOS does when its menu opens) never gets here
+    val sessionLive: Boolean get() = _sessionSurfaced
 
     private val _trackInfo = MutableStateFlow(TrackInfo())
     val trackInfo = _trackInfo.asStateFlow()
@@ -306,6 +318,8 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
         airPlayVideoPlayer.onTitle = { _videoTitle.value = it ?: "" }
         airPlayVideoPlayer.onEnded = { _endVideoPlayback("AirPlay Video stopped (player)") }
         airPlayVideoPlayer.onPlaybackInfo = { snapshot ->
+            _lastVideoSnapshot = snapshot
+            if (snapshot.ready) videoV2.onPlayerChanged(snapshot.rate > 0f)
             if (nativeHandle != 0L) {
                 NativeBridge.nativeUpdatePlaybackInfo(nativeHandle, snapshot.position, snapshot.duration, snapshot.rate, snapshot.ready)
             }
@@ -488,12 +502,14 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
         }
         dacpController?.reset()
         alwaysOn.stop()
+        videoV2.stop()
         videoRenderer.release()
         airPlayVideoPlayer.stop()
         mediaSession?.isActive = false
         _audioOnly.value = false
         _videoPlaybackActive.value = false
         _mirroringActive.value = false
+        _senderName.value = null
         _videoPlaybackInfo.value = VideoPlaybackInfo()
         _lastVideoPollAt = 0
         _videoPollSuppressed = false
@@ -595,6 +611,37 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
 
     override fun onVideoData(data: ByteArray, ntpTimeNs: Long, isH265: Boolean) {
         videoRenderer.feedFrame(data, ntpTimeNs, isH265)
+    }
+
+    // last player snapshot, for AirPlay video v2's playbackInfo answers
+    @Volatile private var _lastVideoSnapshot: PlaybackSnapshot? = null
+
+    // AirPlay video v2 (macOS QuickTime) drives the same player as /play
+    private val videoV2 = VideoV2Session(object : VideoV2Session.Player {
+        override fun play(url: String, startSeconds: Float) = onVideoPlay(url, startSeconds)
+        override fun setRate(rate: Float) = onVideoRate(rate)
+        override fun seek(seconds: Float) = onVideoScrub(seconds)
+        override fun stop() = onVideoStop()
+        override fun state(): VideoV2Session.State? {
+            if (!_videoPlaybackActive.value) return null
+            val s = _lastVideoSnapshot ?: return VideoV2Session.State(false, false, 0.0, 0.0, 0.0)
+            return VideoV2Session.State(s.ready, s.ready && s.rate > 0f, s.position.toDouble(),
+                s.duration.toDouble().coerceAtLeast(0.0), s.position.toDouble())
+        }
+    })
+
+    override fun onAv2EventPort(): Int = videoV2.eventPort()
+    override fun onAv2Stream(streamId: Long) = videoV2.onStream(streamId)
+    override fun onAv2Command(streamId: Long, xml: ByteArray): ByteArray? = videoV2.onCommand(streamId, xml)
+    override fun onAv2Info(xml: ByteArray) = videoV2.onInfo(xml)
+    override fun onAv2Record() = videoV2.onRecord()
+    override fun onHapPaired(secret: ByteArray) = videoV2.onPaired(secret)
+
+    override fun onClientInfo(name: ByteArray, model: ByteArray) {
+        val n = String(name, Charsets.UTF_8).trim()
+        val m = String(model, Charsets.UTF_8).trim()
+        if (n.isNotEmpty()) _senderName.value = n
+        log("Sender: $n${if (m.isNotEmpty()) " ($m)" else ""}")
     }
 
     override fun onVideoSessionPoll() {
@@ -730,6 +777,8 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
         _connectionCount.value = (_connectionCount.value - 1).coerceAtLeast(0)
         if (_connectionCount.value == 0) {
             _sessionSurfaced = false
+            _senderName.value = null
+            videoV2.onSessionEnd()
             alwaysOn.sessionEnded()
             // clients may drop without POST /stop; must run before the poll-state reset
             _endVideoPlayback("AirPlay Video stopped (disconnect)")

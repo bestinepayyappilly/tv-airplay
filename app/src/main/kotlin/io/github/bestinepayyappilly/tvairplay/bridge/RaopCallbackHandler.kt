@@ -23,4 +23,16 @@ interface RaopCallbackHandler {
     fun onVideoStop()
     // fired per sender GET /playback-info poll; polling starts before /play
     fun onVideoSessionPoll()
+    // sender's device name and model, sent when it sets up a session
+    fun onClientInfo(name: ByteArray, model: ByteArray)
+    // AirPlay video v2 (macOS QuickTime): event channel port to advertise in SETUP (0 = none),
+    // a type-130 playback stream, and POST /command bodies as XML plists; returns an XML reply
+    fun onAv2EventPort(): Int
+    fun onAv2Stream(streamId: Long)
+    fun onAv2Command(streamId: Long, xml: ByteArray): ByteArray?
+    // the /info reply as an XML plist, and RECORD (after which v2 senders expect updateInfo)
+    fun onAv2Info(xml: ByteArray)
+    fun onAv2Record()
+    // HomeKit transient pairing finished; the 64-byte secret keys the encrypted event channel
+    fun onHapPaired(secret: ByteArray)
 }

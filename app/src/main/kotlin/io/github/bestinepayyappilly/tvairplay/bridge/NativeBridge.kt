@@ -19,6 +19,15 @@ object NativeBridge {
     external fun nativeDestroy(handle: Long)
 
     external fun nativeSetDisplaySize(handle: Long, w: Int, h: Int, fps: Int)
+
+    // binary plist <-> XML plist (UTF-8), for AirPlay video v2 messages; null if unparseable
+    external fun plistXmlToBin(xml: ByteArray): ByteArray?
+    external fun plistBinToXml(bin: ByteArray): ByteArray?
+
+    // loopback HTTP proxy to a sender's TLS 1.2 PSK media server (0 = failed to start)
+    external fun pskProxyStart(host: String, port: Int, psk: ByteArray): Long
+    external fun pskProxyPort(handle: Long): Int
+    external fun pskProxyStop(handle: Long)
     external fun nativeSetPlist(handle: Long, key: String, value: Int)
     external fun nativeSetH265Enabled(handle: Long, enabled: Boolean)
     external fun nativeSetCodecs(handle: Long, alac: Boolean, aac: Boolean)

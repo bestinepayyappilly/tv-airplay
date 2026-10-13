@@ -276,6 +276,32 @@ class MainViewModel @Inject constructor(app: Application) : AndroidViewModel(app
     private val _mirroringActive = MutableStateFlow(false)
     val mirroringActive: StateFlow<Boolean> = _mirroringActive.asStateFlow()
 
+    private val _senderName = MutableStateFlow<String?>(null)
+    val senderName: StateFlow<String?> = _senderName.asStateFlow()
+
+    private val _mirrorFrameShown = MutableStateFlow(false)
+    val mirrorFrameShown: StateFlow<Boolean> = _mirrorFrameShown.asStateFlow()
+
+    private val _sessionLive = MutableStateFlow(false)
+    val sessionLive: StateFlow<Boolean> = _sessionLive.asStateFlow()
+
+    // the app was just opened for a session: covers the gap before service state arrives
+    private val _sessionLaunching = MutableStateFlow(false)
+    val sessionLaunching: StateFlow<Boolean> = _sessionLaunching.asStateFlow()
+    private var _sessionLaunchJob: Job? = null
+
+    fun onSessionLaunch() {
+        // last session's values linger until the next poll and would hide the cover at once
+        _mirrorFrameShown.value = false
+        _audioOnly.value = false
+        _sessionLaunching.value = true
+        _sessionLaunchJob?.cancel()
+        _sessionLaunchJob = viewModelScope.launch {
+            delay(SESSION_LAUNCH_COVER_MS)
+            _sessionLaunching.value = false
+        }
+    }
+
     private val _trackInfo = MutableStateFlow(TrackInfo())
     val trackInfo: StateFlow<TrackInfo> = _trackInfo.asStateFlow()
 
@@ -596,6 +622,9 @@ class MainViewModel @Inject constructor(app: Application) : AndroidViewModel(app
                 _videoBuffering.value = false
             }
             _mirroringActive.value = it.mirroringActive.value
+            _senderName.value = it.senderName.value
+            _mirrorFrameShown.value = it.mirrorFrameShown
+            _sessionLive.value = it.sessionLive
             _trackInfo.value = it.trackInfo.value
             if (_debugEnabled.value) {
                 _debugInfo.value = it.collectDebugInfo()
@@ -611,5 +640,7 @@ class MainViewModel @Inject constructor(app: Application) : AndroidViewModel(app
         // raise if the play/pause icon flickers back right after a local toggle
         const val VIDEO_ACTION_SYNC_HOLD_MS = 700L
         const val SERVER_RESTART_DEBOUNCE_MS = 500L
+        // upper bound for covering a launch before the session reports in
+        const val SESSION_LAUNCH_COVER_MS = 8_000L
     }
 }

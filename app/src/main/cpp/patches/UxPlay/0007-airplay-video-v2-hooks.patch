@@ -1,0 +1,155 @@
+--- a/lib/raop.h
++++ b/lib/raop.h
+@@ -111,6 +111,14 @@
+     void  (*on_video_stop) (void *cls);
+     void  (*on_video_acquire_playback_info) (void *cls, playback_info_t *playback_video);
+     float  (*on_video_playlist_remove) (void *cls);
++    /* AirPlay video v2 (macOS QuickTime and similar): event channel port for SETUP, a type-130
++       stream, and POST /command bodies (binary plist). av2_command may set a binary plist reply */
++    unsigned short (*av2_event_port) (void *cls);
++    void  (*av2_stream_setup) (void *cls, uint64_t stream_id);
++    void  (*av2_command) (void *cls, const char *data, int datalen, char **reply, int *reply_len);
++    /* the /info reply (binary plist), which v2 receivers repeat as updateInfo after RECORD */
++    void  (*av2_info) (void *cls, const char *data, int datalen);
++    void  (*av2_record) (void *cls);
+ };
+ 
+ typedef struct raop_callbacks_s raop_callbacks_t;
+--- a/lib/raop_handlers.h
++++ b/lib/raop_handlers.h
+@@ -134,6 +134,22 @@
+     plist_t features_node = plist_new_uint(features);
+     plist_dict_set_item(res_node, "features", features_node);
+ 
++    if (raop->callbacks.av2_event_port) {
++        /* AirPlay video v2 senders (macOS 27) want these, as an Apple TV sends them */
++        plist_t formats_node = plist_new_dict();
++        plist_dict_set_item(formats_node, "lowLatencyAudioStream", plist_new_uint(0));
++        plist_dict_set_item(formats_node, "screenStream", plist_new_uint(21235712));
++        plist_dict_set_item(formats_node, "audioStream", plist_new_uint(21235712));
++        plist_dict_set_item(formats_node, "bufferStream", plist_new_uint(14680064));
++        plist_dict_set_item(res_node, "supportedFormats", formats_node);
++        plist_t caps_node = plist_new_dict();
++        plist_dict_set_item(caps_node, "supportsInterstitials", plist_new_bool(1));
++        plist_dict_set_item(caps_node, "supportsFPSSecureStop", plist_new_bool(0));
++        plist_dict_set_item(caps_node, "supportsUIForAudioOnlyContent", plist_new_bool(1));
++        plist_dict_set_item(res_node, "playbackCapabilities", caps_node);
++        plist_dict_set_item(res_node, "protocolVersion", plist_new_string("1.1"));
++    }
++
+     int name_len = 0;
+     const char *name = dnssd_get_name(raop->dnssd, &name_len);
+     plist_t name_node = plist_new_string(name);
+@@ -244,6 +260,9 @@
+ 
+  finished:
+     plist_to_bin(res_node, response_data, (uint32_t *) response_datalen);
++    if (raop->callbacks.av2_info && *response_data) {
++        raop->callbacks.av2_info(raop->callbacks.cls, *response_data, *response_datalen);
++    }
+     plist_free(res_node);
+     http_response_add_header(response, "Content-Type", "application/x-apple-binary-plist");
+ }
+@@ -916,8 +935,32 @@
+         conn->raop_rtp_mirror = raop_rtp_mirror_init(raop->logger, &raop->callbacks,
+                                                      conn->raop_ntp, remote, conn->remotelen, aeskey);
+ 
+-        /* the event port is not used in mirror mode or audio mode */
++        /* the event port is not used in mirror mode or audio mode; AirPlay video v2 needs it */
+         unsigned short event_port = 0;
++        if (raop->callbacks.av2_event_port) {
++            event_port = raop->callbacks.av2_event_port(raop->callbacks.cls);
++            /* v2 senders ask for the /info dictionary inside this reply, and decide from it */
++            plist_t combined_node = plist_dict_get_item(req_root_node, "combinedGetInfoWithControlSetup");
++            uint8_t combined = 0;
++            if (combined_node) plist_get_bool_val(combined_node, &combined);
++            if (combined) {
++                http_response_t *info_response = http_response_create();
++                http_response_init(info_response, "RTSP/1.0", 200, "OK");
++                char *info_data = NULL;
++                int info_len = 0;
++                raop_handler_info(conn, request, info_response, &info_data, &info_len);
++                if (info_data && info_len > 0) {
++                    plist_t info_node = NULL;
++                    plist_from_bin(info_data, (uint32_t) info_len, &info_node);
++                    if (info_node) {
++                        plist_dict_merge(&res_root_node, info_node);
++                        plist_free(info_node);
++                    }
++                }
++                free(info_data);
++                http_response_destroy(info_response);
++            }
++        }
+         plist_t res_event_port_node = plist_new_uint(event_port);
+         plist_t res_timing_port_node = plist_new_uint(timing_lport);
+         plist_dict_set_item(res_root_node, "timingPort", res_timing_port_node);
+@@ -1038,6 +1081,20 @@
+                 break;
+                 }
+ 
++            case 130: {
++                /* AirPlay video v2 playback stream: commands arrive as POST /command */
++                static uint64_t av2_stream_id = 0;
++                av2_stream_id++;
++                if (raop->callbacks.av2_stream_setup) {
++                    raop->callbacks.av2_stream_setup(raop->callbacks.cls, av2_stream_id);
++                }
++                plist_t res_stream_node = plist_new_dict();
++                plist_dict_set_item(res_stream_node, "type", plist_new_uint(130));
++                plist_dict_set_item(res_stream_node, "streamID", plist_new_uint(av2_stream_id));
++                plist_array_append_item(res_streams_node, res_stream_node);
++                break;
++                }
++
+             default:
+                 logger_log(raop->logger, LOGGER_ERR, "SETUP tries to setup stream of unknown type %llu", type);
+                 http_response_set_disconnect(response, 1);
+@@ -1052,6 +1109,26 @@
+     plist_free(res_root_node);
+     plist_free(req_root_node);
+     http_response_add_header(response, "Content-Type", "application/x-apple-binary-plist");
++}
++
++static void
++raop_handler_av2_command(raop_conn_t *conn,
++                         http_request_t *request, http_response_t *response,
++                         char **response_data, int *response_datalen)
++{
++    raop_t *raop = conn->raop;
++    int datalen = 0;
++    const char *data = http_request_get_data(request, &datalen);
++    char *reply = NULL;
++    int reply_len = 0;
++    if (raop->callbacks.av2_command) {
++        raop->callbacks.av2_command(raop->callbacks.cls, data, datalen, &reply, &reply_len);
++    }
++    if (reply && reply_len > 0) {
++        *response_data = reply;
++        *response_datalen = reply_len;
++        http_response_add_header(response, "Content-Type", "application/x-apple-binary-plist");
++    }
+ }
+ 
+ static void
+@@ -1212,6 +1289,9 @@
+     logger_log(raop->logger, LOGGER_DEBUG, "raop_handler_record");
+     http_response_add_header(response, "Audio-Latency", audio_latency);
+     http_response_add_header(response, "Audio-Jack-Status", "connected; type=analog");
++    if (raop->callbacks.av2_record) {
++        raop->callbacks.av2_record(raop->callbacks.cls);
++    }
+ }
+ 
+ static void
+--- a/lib/raop.c
++++ b/lib/raop.c
+@@ -420,6 +420,8 @@
+                 handler = &raop_handler_fpsetup;
+             } else if (!strcmp(url, "/audioMode")) {
+                 handler = &raop_handler_audiomode;
++            } else if (!strcmp(url, "/command")) {
++                handler = &raop_handler_av2_command;
+             }
+         } else if (!strcmp(method, "GET")) {
+             if (strstr(url, "/info")) {

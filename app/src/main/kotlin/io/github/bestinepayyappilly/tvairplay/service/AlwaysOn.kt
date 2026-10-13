@@ -149,6 +149,7 @@ class AlwaysOn(private val ctx: Context) {
             // manager to turn the screen on as well, which goes through a different path
             ctx.startActivity(Intent(ctx, MainActivity::class.java)
                 .putExtra(EXTRA_TURN_SCREEN_ON, asleep)
+                .putExtra(EXTRA_SESSION_LAUNCH, true)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
         } catch (e: RuntimeException) {
             Log.w(TAG, "cannot open the app", e)
@@ -251,6 +252,8 @@ class AlwaysOn(private val ctx: Context) {
         private const val TAG = "AlwaysOn"
         const val EXTRA_TURN_SCREEN_ON = "io.github.bestinepayyappilly.tvairplay.TURN_SCREEN_ON"
         const val EXTRA_MOVE_TO_BACK = "io.github.bestinepayyappilly.tvairplay.MOVE_TO_BACK"
+        // opened because a session started; the UI covers the wait for the first frame
+        const val EXTRA_SESSION_LAUNCH = "io.github.bestinepayyappilly.tvairplay.SESSION_LAUNCH"
         // grace for a sender that disconnects and comes straight back
         private const val RETURN_DELAY_MS = 3_000L
         private const val WAKE_MS = 3_000L

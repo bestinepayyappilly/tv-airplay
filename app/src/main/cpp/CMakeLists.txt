@@ -17,6 +17,9 @@ string(REGEX MATCH "[0-9]+" AIRPLAY_ANDROID_API "${ANDROID_PLATFORM}")
 set(OPENSSL_PARAMS "-D__ANDROID_API__=${AIRPLAY_ANDROID_API}" CACHE STRING "" FORCE)
 set(FORWARD_ANDROID_NDK_ROOT "${ANDROID_NDK}" CACHE STRING "" FORCE) # CI
 
+# openssl-cmake's defaults minus no-psk: macOS serves AirPlay video files over TLS 1.2 PSK
+# (hap/psk_proxy.c)
+set(OPENSSL_MODULES "no-cast no-md2 no-md4 no-mdc2 no-rc4 no-rc5 no-engine no-idea no-camellia no-ssl3 no-heartbeats no-gost no-deprecated no-capieng no-comp no-dtls no-srp no-dso no-dsa no-rc2 no-des" CACHE STRING "" FORCE)
 list(PREPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 add_subdirectory(third_party/openssl-cmake)
 
@@ -119,6 +122,8 @@ set(BRIDGE_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/native_bridge.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/audio_engine.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/alac/alac.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/hap/hap.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/hap/psk_proxy.c
 )
 
 # ---------- Final shared library ----------
@@ -139,6 +144,9 @@ target_compile_definitions(airplay_native PRIVATE
     __STDC_CONSTANT_MACROS
     PLIST_210
     TARGET_RT_LITTLE_ENDIAN=1
+    # AirPlay video v2 (macOS QuickTime casting) is unfinished: the Mac pairs and sets up, but
+    # never starts playback. Uncomment to work on it; see VideoV2Session.kt.
+    TVAIRPLAY_VIDEO_V2
 )
 
 target_link_options(airplay_native PRIVATE "-Wl,--build-id=none")
@@ -146,6 +154,7 @@ target_link_options(airplay_native PRIVATE "-Wl,--build-id=none")
 target_link_libraries(airplay_native
     llhttp
     playfair
+    ssl
     crypto
     plist
     oboe::oboe

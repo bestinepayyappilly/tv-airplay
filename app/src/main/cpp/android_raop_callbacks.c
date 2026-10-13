@@ -10,6 +10,7 @@
 #include <android/log.h>
 #include "android_raop_callbacks.h"
 #include "audio_engine.h"
+#include <plist/plist.h>
 
 #define TAG "AirPlayNative"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
@@ -69,6 +70,13 @@ void android_callbacks_init(android_callback_ctx_t *ctx, JNIEnv *env, jobject ca
     ctx->on_video_rate = (*env)->GetMethodID(env, cls, "onVideoRate", "(F)V");
     ctx->on_video_stop = (*env)->GetMethodID(env, cls, "onVideoStop", "()V");
     ctx->on_video_session_poll = (*env)->GetMethodID(env, cls, "onVideoSessionPoll", "()V");
+    ctx->on_client_info = (*env)->GetMethodID(env, cls, "onClientInfo", "([B[B)V");
+    ctx->on_av2_event_port = (*env)->GetMethodID(env, cls, "onAv2EventPort", "()I");
+    ctx->on_av2_stream = (*env)->GetMethodID(env, cls, "onAv2Stream", "(J)V");
+    ctx->on_av2_command = (*env)->GetMethodID(env, cls, "onAv2Command", "(J[B)[B");
+    ctx->on_av2_info = (*env)->GetMethodID(env, cls, "onAv2Info", "([B)V");
+    ctx->on_av2_record = (*env)->GetMethodID(env, cls, "onAv2Record", "()V");
+    ctx->on_hap_paired = (*env)->GetMethodID(env, cls, "onHapPaired", "([B)V");
     (*env)->DeleteLocalRef(env, cls);
 }
 
@@ -191,6 +199,125 @@ static void _display_pin(void *cls, char *pin) {
     jstring jpin = (*env)->NewStringUTF(env, pin);
     (*env)->CallVoidMethod(env, ctx->callback_obj, ctx->on_display_pin, jpin);
     (*env)->DeleteLocalRef(env, jpin);
+}
+
+static jbyteArray _bytes(JNIEnv *env, const char *s) {
+    jsize len = s ? (jsize)strlen(s) : 0;
+    jbyteArray a = (*env)->NewByteArray(env, len);
+    if (a && len > 0) (*env)->SetByteArrayRegion(env, a, 0, len, (const jbyte *)s);
+    return a;
+}
+
+/* sender's name ("Bestine's MacBook Pro") and model, from its pair-setup request */
+static void _report_client_request(void *cls, char *deviceid, char *model, char *name, bool *admit) {
+    android_callback_ctx_t *ctx = (android_callback_ctx_t *)cls;
+    (void)deviceid; (void)admit;
+    JNIEnv *env = _get_env(ctx);
+    if (!env) return;
+    /* raw bytes: names can hold emoji, which NewStringUTF (modified UTF-8) rejects */
+    jbyteArray jname = _bytes(env, name);
+    jbyteArray jmodel = _bytes(env, model);
+    if (jname && jmodel) (*env)->CallVoidMethod(env, ctx->callback_obj, ctx->on_client_info, jname, jmodel);
+    if (jname) (*env)->DeleteLocalRef(env, jname);
+    if (jmodel) (*env)->DeleteLocalRef(env, jmodel);
+}
+
+/* --- AirPlay video v2 (QuickTime): plists cross JNI as XML, Kotlin parses and builds them --- */
+
+static unsigned short _av2_event_port(void *cls) {
+    android_callback_ctx_t *ctx = (android_callback_ctx_t *)cls;
+    JNIEnv *env = _get_env(ctx);
+    if (!env) return 0;
+    jint port = (*env)->CallIntMethod(env, ctx->callback_obj, ctx->on_av2_event_port);
+    return (unsigned short) port;
+}
+
+static void _av2_stream_setup(void *cls, uint64_t stream_id) {
+    android_callback_ctx_t *ctx = (android_callback_ctx_t *)cls;
+    JNIEnv *env = _get_env(ctx);
+    if (!env) return;
+    (*env)->CallVoidMethod(env, ctx->callback_obj, ctx->on_av2_stream, (jlong) stream_id);
+}
+
+static void _av2_command(void *cls, const char *stream_id, const char *data, int datalen, char **reply, int *reply_len) {
+    android_callback_ctx_t *ctx = (android_callback_ctx_t *)cls;
+    JNIEnv *env = _get_env(ctx);
+    if (!env || !data || datalen <= 0) return;
+    plist_t root = NULL;
+    plist_from_bin(data, (uint32_t) datalen, &root);
+    if (!root) return;
+    char *xml = NULL;
+    uint32_t xml_len = 0;
+    plist_to_xml(root, &xml, &xml_len);
+    plist_free(root);
+    if (!xml) return;
+    jbyteArray jxml = _bytes(env, xml);
+    plist_mem_free(xml);
+    if (!jxml) return;
+    /* -1: a session-level command with no X-Apple-StreamID */
+    jlong sid = stream_id ? (jlong) strtoll(stream_id, NULL, 10) : -1;
+    jbyteArray jreply = (jbyteArray) (*env)->CallObjectMethod(env, ctx->callback_obj, ctx->on_av2_command, sid, jxml);
+    (*env)->DeleteLocalRef(env, jxml);
+    if (!jreply) return;
+    jsize rlen = (*env)->GetArrayLength(env, jreply);
+    char *rxml = malloc(rlen + 1);
+    if (rxml) {
+        (*env)->GetByteArrayRegion(env, jreply, 0, rlen, (jbyte *) rxml);
+        rxml[rlen] = 0;
+        plist_t rroot = NULL;
+        plist_from_xml(rxml, (uint32_t) rlen, &rroot);
+        free(rxml);
+        if (rroot) {
+            char *bin = NULL;
+            uint32_t bin_len = 0;
+            plist_to_bin(rroot, &bin, &bin_len);
+            plist_free(rroot);
+            if (bin) {
+                /* raop.c frees the response body with free() */
+                *reply = malloc(bin_len);
+                if (*reply) { memcpy(*reply, bin, bin_len); *reply_len = (int) bin_len; }
+                plist_mem_free(bin);
+            }
+        }
+    }
+    (*env)->DeleteLocalRef(env, jreply);
+}
+
+static void _av2_info(void *cls, const char *data, int datalen) {
+    android_callback_ctx_t *ctx = (android_callback_ctx_t *)cls;
+    JNIEnv *env = _get_env(ctx);
+    if (!env || !data || datalen <= 0) return;
+    plist_t root = NULL;
+    plist_from_bin(data, (uint32_t) datalen, &root);
+    if (!root) return;
+    char *xml = NULL;
+    uint32_t xml_len = 0;
+    plist_to_xml(root, &xml, &xml_len);
+    plist_free(root);
+    if (!xml) return;
+    jbyteArray jxml = _bytes(env, xml);
+    plist_mem_free(xml);
+    if (!jxml) return;
+    (*env)->CallVoidMethod(env, ctx->callback_obj, ctx->on_av2_info, jxml);
+    (*env)->DeleteLocalRef(env, jxml);
+}
+
+static void _av2_record(void *cls) {
+    android_callback_ctx_t *ctx = (android_callback_ctx_t *)cls;
+    JNIEnv *env = _get_env(ctx);
+    if (!env) return;
+    (*env)->CallVoidMethod(env, ctx->callback_obj, ctx->on_av2_record);
+}
+
+static void _hap_paired(void *cls, const unsigned char *secret, int len) {
+    android_callback_ctx_t *ctx = (android_callback_ctx_t *)cls;
+    JNIEnv *env = _get_env(ctx);
+    if (!env || !secret || len <= 0) return;
+    jbyteArray js = (*env)->NewByteArray(env, len);
+    if (!js) return;
+    (*env)->SetByteArrayRegion(env, js, 0, len, (const jbyte *) secret);
+    (*env)->CallVoidMethod(env, ctx->callback_obj, ctx->on_hap_paired, js);
+    (*env)->DeleteLocalRef(env, js);
 }
 
 /* Stubs for less critical callbacks */
@@ -409,6 +536,17 @@ void android_callbacks_fill(raop_callbacks_t *cbs, android_callback_ctx_t *ctx) 
     cbs->video_report_size = _video_report_size;
     cbs->mirror_video_running = _mirror_video_running;
     cbs->display_pin = _display_pin;
+    cbs->report_client_request = _report_client_request;
+#ifdef TVAIRPLAY_VIDEO_V2
+    /* AirPlay video v2 (macOS QuickTime) is unfinished: macOS 27 stops after updateInfo.
+       Off by default so senders keep using the paths that work. */
+    cbs->av2_event_port = _av2_event_port;
+    cbs->av2_stream_setup = _av2_stream_setup;
+    cbs->av2_command = _av2_command;
+    cbs->av2_info = _av2_info;
+    cbs->av2_record = _av2_record;
+    cbs->hap_paired = _hap_paired;
+#endif
     cbs->video_set_codec = _video_set_codec;
     cbs->on_video_play = _video_play;
     cbs->on_video_scrub = _video_scrub;

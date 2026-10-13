@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.rounded.BrightnessHigh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import android.os.SystemClock
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -106,7 +107,8 @@ fun MainScreen(
         VideoSurfaceView(
             onSurfaceAvailable = onSurfaceAvailable,
             onSurfaceDestroyed = onSurfaceDestroyed,
-            aspectRatio = aspect
+            aspectRatio = aspect,
+            maskEdgesPx = 4
         )
     }
 
@@ -560,6 +562,34 @@ fun MainScreen(
         )
     }
 
+    // a live session with nothing on screen yet. Audio-only and AirPlay video have their own
+    // screens; Back hides it for the rest of the session
+    val senderName by viewModel.senderName.collectAsState()
+    val sessionLive by viewModel.sessionLive.collectAsState()
+    val sessionLaunching by viewModel.sessionLaunching.collectAsState()
+    val frameShown by viewModel.mirrorFrameShown.collectAsState()
+    var connectingDismissed by remember { mutableStateOf(false) }
+    LaunchedEffect(sessionLive, sessionLaunching) {
+        if (!sessionLive && !sessionLaunching) connectingDismissed = false
+    }
+    val wantConnecting = (sessionLaunching || (sessionLive && connections > 0)) && pin == null &&
+        !audioOnly && !frameShown && !connectingDismissed
+    // shown in the same frame the condition turns true, so the video never flashes first; a fast
+    // sender has its first frame up as the app opens, so it is held long enough to read
+    var connectingHeld by remember { mutableStateOf(false) }
+    var connectingSince by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(wantConnecting) {
+        val now = SystemClock.elapsedRealtime()
+        if (wantConnecting) {
+            if (!connectingHeld) { connectingHeld = true; connectingSince = now }
+        } else if (connectingHeld) {
+            delay((connectingSince + CONNECTING_MIN_MS - now).coerceAtLeast(0))
+            connectingHeld = false
+        }
+    }
+    val connecting = wantConnecting || (connectingHeld && !connectingDismissed)
+    BackHandler(enabled = connecting) { connectingDismissed = true }
+    ConnectingScreen(visible = connecting, senderName = senderName)
 }
 
 @Composable
@@ -989,6 +1019,8 @@ private fun NowPlayingContent(viewModel: MainViewModel) {
 }
 
 private const val VIDEO_OVERLAY_HIDE_MS = 4000L
+// shortest time the connecting screen stays up, so it reads as a transition rather than a flash
+private const val CONNECTING_MIN_MS = 1500L
 
 @Composable
 private fun DebugOverlay(info: DebugInfo, modifier: Modifier = Modifier) {

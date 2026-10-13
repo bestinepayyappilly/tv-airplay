@@ -34,6 +34,13 @@ typedef struct {
     jmethodID on_video_rate;
     jmethodID on_video_stop;
     jmethodID on_video_session_poll;
+    jmethodID on_client_info;
+    jmethodID on_av2_event_port;
+    jmethodID on_av2_stream;
+    jmethodID on_av2_command;
+    jmethodID on_av2_info;
+    jmethodID on_av2_record;
+    jmethodID on_hap_paired;
     int h265_enabled;
     int require_pin;
     char *registered_keys[16];

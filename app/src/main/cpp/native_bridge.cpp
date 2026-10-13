@@ -20,6 +20,8 @@ extern "C" {
 
 #include "audio_engine.h"
 #include "log_sink.h"
+#include <plist/plist.h>
+#include "hap/psk_proxy.h"
 
 #define TAG "AirPlayNative"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
@@ -311,6 +313,15 @@ Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeSetHlsEnab
     if (ctx->dnssd) {
         dnssd_set_airplay_features(ctx->dnssd, 0, enabled ? 1 : 0);
         dnssd_set_airplay_features(ctx->dnssd, 4, enabled ? 1 : 0);
+#ifdef TVAIRPLAY_VIDEO_V2
+        /* SupportsAirPlayVideoV2: macOS QuickTime casts files through it (VideoV2Session) */
+        dnssd_set_airplay_features(ctx->dnssd, 49, enabled ? 1 : 0);
+        /* SupportsAirPlayVideoPlayQueue, which an Apple TV advertises alongside it */
+        dnssd_set_airplay_features(ctx->dnssd, 33, enabled ? 1 : 0);
+        /* HomeKit + transient pairing (hap.c): video v2 senders only play over such sessions */
+        dnssd_set_airplay_features(ctx->dnssd, 46, enabled ? 1 : 0);
+        dnssd_set_airplay_features(ctx->dnssd, 48, enabled ? 1 : 0);
+#endif
     }
 }
 
@@ -419,4 +430,63 @@ Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeServerAudi
     jlong cap = env->GetDirectBufferCapacity(buf);
     if (!addr || cap <= 0) return JNI_FALSE;
     return audio_engine_get_debug(ctx->cb_ctx.audio_engine, addr, (size_t)cap) ? JNI_TRUE : JNI_FALSE;
+}
+
+// plist format conversion for the AirPlay video v2 event channel, which Kotlin speaks in XML
+static jbyteArray _plist_convert(JNIEnv *env, jbyteArray in, bool to_bin) {
+    jsize len = env->GetArrayLength(in);
+    std::string buf(len, '\0');
+    env->GetByteArrayRegion(in, 0, len, reinterpret_cast<jbyte *>(&buf[0]));
+    plist_t root = nullptr;
+    if (to_bin) plist_from_xml(buf.c_str(), (uint32_t) len, &root);
+    else plist_from_bin(buf.data(), (uint32_t) len, &root);
+    if (!root) return nullptr;
+    char *out = nullptr;
+    uint32_t out_len = 0;
+    if (to_bin) plist_to_bin(root, &out, &out_len);
+    else plist_to_xml(root, &out, &out_len);
+    plist_free(root);
+    if (!out) return nullptr;
+    jbyteArray res = env->NewByteArray((jsize) out_len);
+    if (res) env->SetByteArrayRegion(res, 0, (jsize) out_len, reinterpret_cast<const jbyte *>(out));
+    plist_mem_free(out);
+    return res;
+}
+
+extern "C"
+JNIEXPORT jbyteArray JNICALL
+Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_plistXmlToBin(JNIEnv *env, jobject, jbyteArray xml) {
+    return _plist_convert(env, xml, true);
+}
+
+extern "C"
+JNIEXPORT jbyteArray JNICALL
+Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_plistBinToXml(JNIEnv *env, jobject, jbyteArray bin) {
+    return _plist_convert(env, bin, false);
+}
+
+// AirPlay video v2: the sender serves a local file over TLS-PSK; ExoPlayer reads it through this
+extern "C"
+JNIEXPORT jlong JNICALL
+Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_pskProxyStart(
+        JNIEnv *env, jobject, jstring host, jint port, jbyteArray psk) {
+    const char *host_c = env->GetStringUTFChars(host, NULL);
+    jsize len = env->GetArrayLength(psk);
+    jbyte *key = env->GetByteArrayElements(psk, NULL);
+    psk_proxy_t *proxy = psk_proxy_start(host_c, port, reinterpret_cast<const uint8_t *>(key), (size_t) len);
+    env->ReleaseByteArrayElements(psk, key, JNI_ABORT);
+    env->ReleaseStringUTFChars(host, host_c);
+    return (jlong) (intptr_t) proxy;
+}
+
+extern "C"
+JNIEXPORT jint JNICALL
+Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_pskProxyPort(JNIEnv *, jobject, jlong handle) {
+    return psk_proxy_port(reinterpret_cast<psk_proxy_t *>((intptr_t) handle));
+}
+
+extern "C"
+JNIEXPORT void JNICALL
+Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_pskProxyStop(JNIEnv *, jobject, jlong handle) {
+    psk_proxy_stop(reinterpret_cast<psk_proxy_t *>((intptr_t) handle));
 }
