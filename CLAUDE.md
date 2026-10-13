@@ -29,9 +29,9 @@ git submodule update --init --depth 1          # UxPlay, OpenSSL, libplist, FFmp
 
 ## Layout
 
-- `app/src/main/kotlin/io/github/jqssun/airplay/`: Kotlin with Hilt, Compose UI and its own TV focus handling (`ui/Tv*.kt`).
+- `app/src/main/kotlin/io/github/bestinepayyappilly/tvairplay/`: Kotlin with Hilt, Compose UI and its own TV focus handling (`ui/Tv*.kt`).
   - `service/AirPlayService.kt` is the foreground service. It implements the native callbacks (`bridge/RaopCallbackHandler.kt`).
-  - `discovery/NsdServiceManager.kt` advertises `_airplay._tcp` and `_raop._tcp` through NsdManager.
+  - `discovery/Advertiser.kt` advertises `_airplay._tcp` and `_raop._tcp` through NsdManager; `service/AlwaysOn.kt` re-announces on network change and SCREEN_ON, wakes the TV and holds session locks.
   - `renderer/`: mirroring is MediaCodec, then a SurfaceTexture, then GL, then a SurfaceView. HLS goes through ExoPlayer.
 - `app/src/main/cpp/`: the JNI bridge (`native_bridge.cpp`), audio (native AMediaCodec and Oboe), and `android_dnssd_shim.c`, which only stores TXT records.
 - `app/src/main/cpp/third_party/`: git submodules. **Don't edit UxPlay in place.**
@@ -46,7 +46,7 @@ git submodule update --init --depth 1          # UxPlay, OpenSSL, libplist, FFmp
 - **License:** GPL-3.0, inherited from UxPlay. When porting code from `reference/airplay-tv`, keep its copyright notices.
 - **Match the surrounding code:** Kotlin, Hilt injection, StateFlow viewmodels and Compose.
 - **Upstream merges:** the remote `upstream` points at jqssun. Keep changes to upstream files small so merges stay easy, and put new behavior in new files where possible.
-- **App ID:** `applicationId` is still upstream's `io.github.jqssun.airplay`. Change it before installing next to the Play/F-Droid build.
+- **App ID:** `io.github.bestinepayyappilly.tvairplay` (namespace, Kotlin package and JNI symbols in `native_bridge.cpp`). Upstream merges need their `io.github.jqssun.airplay` paths remapped.
 
 ## Things that won't work (don't retry)
 

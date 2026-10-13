@@ -15,7 +15,7 @@ val localProps = Properties().apply {
 val allAbis = listOf("arm64-v8a", "armeabi-v7a", "x86_64")
 
 android {
-    namespace = "io.github.jqssun.airplay"
+    namespace = "io.github.bestinepayyappilly.tvairplay"
     compileSdk = 36
     ndkVersion = "27.1.12297006"
 
@@ -31,7 +31,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "io.github.jqssun.airplay"
+        applicationId = "io.github.bestinepayyappilly.tvairplay"
         minSdk = 24
         targetSdk = 36
         versionCode = 31
