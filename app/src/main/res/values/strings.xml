@@ -184,6 +184,7 @@
     <string name="debug_fps_bitrate">FPS: %1$d  Bitrate: %2$s</string>
     <string name="debug_frames_drops">Frames: %1$d  Drops: %2$d</string>
     <string name="debug_jitter">Jitter: %1$s</string>
+    <string name="debug_decode_latency">Decode latency: %1$.1f / %2$.1f ms</string>
     <string name="debug_audio">%1$s  Vol: %2$d%%</string>
     <string name="debug_audio_buffer">Buffer: %1$d ms (tgt: %2$d ms)</string>
     <string name="debug_audio_glitch">Glitch: trim=%1$d drop=%2$d sil=%3$d ur=%4$d xrun=%5$d</string>

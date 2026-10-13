@@ -32,6 +32,9 @@ class VideoRenderer(ctx: Context) {
     @Volatile var codecName = ""; private set
     @Volatile var droppedFrames = 0L; private set
     @Volatile var framePacingJitterUs = 0L; private set
+    // frame arrival to decoded-frame release, mean and max over the last second
+    @Volatile var decodeLatencyUs = 0L; private set
+    @Volatile var decodeLatencyMaxUs = 0L; private set
 
     var enforceSdr = true
     var keyAllowFrameDrop = true
@@ -48,6 +51,17 @@ class VideoRenderer(ctx: Context) {
     // anchors that map decoder PTS (us) to System.nanoTime() for scheduled rendering
     private var _ptsBaseUs = Long.MIN_VALUE
     private var _wallBaseNs = 0L
+    // output is drained on its own thread so a decoded frame shows as soon as it's ready,
+    // not when the next input frame arrives (a static mirrored screen sends few frames)
+    private var _drainThread: Thread? = null
+    @Volatile private var _draining = false
+    // arrival time per queued pts, matched when the decoded frame comes out
+    private val _arrivalPts = LongArray(64)
+    private val _arrivalNs = LongArray(64)
+    private var _arrivalIdx = 0
+    private var _latSumUs = 0L
+    private var _latMaxUs = 0L
+    private var _latCount = 0
 
     fun setResolution(w: Int, h: Int) {
         videoWidth = w
@@ -100,6 +114,7 @@ class VideoRenderer(ctx: Context) {
     private fun _resetStats() {
         fps = 0; bitrateBps = 0; frameCount = 0; codecName = ""
         droppedFrames = 0; framePacingJitterUs = 0
+        decodeLatencyUs = 0; decodeLatencyMaxUs = 0
         _framesThisSec = 0; _bytesThisSec = 0
     }
 
@@ -109,6 +124,11 @@ class VideoRenderer(ctx: Context) {
             fps = _framesThisSec
             bitrateBps = _bytesThisSec * 8
             framePacingJitterUs = _computeFramePacingJitterUs()
+            synchronized(_arrivalPts) {
+                decodeLatencyUs = if (_latCount > 0) _latSumUs / _latCount else 0
+                decodeLatencyMaxUs = _latMaxUs
+                _latSumUs = 0; _latMaxUs = 0; _latCount = 0
+            }
             _framesThisSec = 0
             _bytesThisSec = 0
             _lastStatReset = now
@@ -121,7 +141,8 @@ class VideoRenderer(ctx: Context) {
 
     private fun _emitBenchmarkLine() {
         val msg = "fps=$fps bitrate=${bitrateBps / 1000}kbps " +
-            "jitter=${framePacingJitterUs}us frames=$frameCount " +
+            "jitter=${framePacingJitterUs}us latency=${decodeLatencyUs / 1000}/${decodeLatencyMaxUs / 1000}ms " +
+            "frames=$frameCount " +
             "dropped=$droppedFrames codec=$codecName " +
             "res=${videoWidth}x${videoHeight}"
         Log.i(BENCH_TAG, msg)
@@ -145,7 +166,6 @@ class VideoRenderer(ctx: Context) {
             try {
                 if (codec == null) startCodec(isH265)
                 _feedToCodec(data, ntpTimeNs)
-                drainOutput()
             } catch (e: Exception) {
                 Log.w(TAG, "Codec error, resetting", e)
                 stopCodec()
@@ -163,11 +183,16 @@ class VideoRenderer(ctx: Context) {
                 val buf = c.getInputBuffer(idx) ?: return
                 buf.clear()
                 buf.put(data)
-                c.queueInputBuffer(idx, 0, data.size, ntpTimeNs / 1000, 0)
+                val ptsUs = ntpTimeNs / 1000
+                synchronized(_arrivalPts) {
+                    val i = _arrivalIdx++ % _arrivalPts.size
+                    _arrivalPts[i] = ptsUs
+                    _arrivalNs[i] = System.nanoTime()
+                }
+                c.queueInputBuffer(idx, 0, data.size, ptsUs, 0)
                 firstFrameQueued = true
                 return
             }
-            drainOutput()
         }
         droppedFrames++
         Log.w(TAG, "Decoder input queue full; dropping frame. drops=$droppedFrames")
@@ -260,9 +285,18 @@ class VideoRenderer(ctx: Context) {
         }
         codec = c
         codecName = (if (h265) "H.265" else "H.264") + " (${c.name})"
+        _draining = true
+        _drainThread = Thread({ _drainLoop(c) }, "VideoDrain").also {
+            it.priority = Thread.MAX_PRIORITY
+            it.start()
+        }
     }
 
     private fun stopCodec() {
+        // the drain thread never takes lock, and it wakes at least every DRAIN_WAIT_US
+        _draining = false
+        _drainThread?.join()
+        _drainThread = null
         _frameIntervalIdx = 0
         _frameIntervalCount = 0
         _lastOutputFrameNs = 0L
@@ -277,25 +311,43 @@ class VideoRenderer(ctx: Context) {
         codec = null
     }
 
-    private fun drainOutput() {
-        val c = codec ?: return
+    private fun _drainLoop(c: MediaCodec) {
         val info = MediaCodec.BufferInfo()
-        while (true) {
-            val idx = c.dequeueOutputBuffer(info, 0)
-            if (idx < 0) break
-            _recordOutputFrameTime()
-            if (scheduledOutputBufferRelease) {
-                // schedule frame at VSYNC matching its NTP presentation time
-                val ptsUs = info.presentationTimeUs
-                if (_ptsBaseUs == Long.MIN_VALUE) {
-                    _ptsBaseUs = ptsUs
-                    _wallBaseNs = System.nanoTime()
-                }
-                c.releaseOutputBuffer(idx, _wallBaseNs + (ptsUs - _ptsBaseUs) * 1000L)
-            } else {
-                c.releaseOutputBuffer(idx, true)
+        try {
+            while (_draining) {
+                val idx = c.dequeueOutputBuffer(info, DRAIN_WAIT_US)
+                if (idx < 0) continue
+                _release(c, idx, info)
             }
+        } catch (e: IllegalStateException) {
+            Log.w(TAG, "drain stopped", e)
         }
+    }
+
+    private fun _release(c: MediaCodec, idx: Int, info: MediaCodec.BufferInfo) {
+        _recordOutputFrameTime()
+        _recordLatency(info.presentationTimeUs)
+        if (scheduledOutputBufferRelease) {
+            // schedule frame at VSYNC matching its NTP presentation time
+            val ptsUs = info.presentationTimeUs
+            if (_ptsBaseUs == Long.MIN_VALUE) {
+                _ptsBaseUs = ptsUs
+                _wallBaseNs = System.nanoTime()
+            }
+            c.releaseOutputBuffer(idx, _wallBaseNs + (ptsUs - _ptsBaseUs) * 1000L)
+        } else {
+            c.releaseOutputBuffer(idx, true)
+        }
+    }
+
+    private fun _recordLatency(ptsUs: Long) = synchronized(_arrivalPts) {
+        val i = _arrivalPts.indexOf(ptsUs)
+        if (i < 0) return@synchronized
+        val us = (System.nanoTime() - _arrivalNs[i]) / 1000
+        _arrivalPts[i] = Long.MIN_VALUE
+        _latSumUs += us
+        _latCount++
+        if (us > _latMaxUs) _latMaxUs = us
     }
 
     fun release() = synchronized(lock) {
@@ -337,5 +389,6 @@ class VideoRenderer(ctx: Context) {
         private const val FEED_WAIT_US = 20_000L
         private const val FEED_RETRIES = 10
         private const val FIRST_FEED_RETRIES = 50
+        private const val DRAIN_WAIT_US = 10_000L
     }
 }

@@ -948,6 +948,8 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
         videoFrames = videoRenderer.frameCount,
         droppedFrames = videoRenderer.droppedFrames,
         framePacingJitterUs = videoRenderer.framePacingJitterUs,
+        decodeLatencyUs = videoRenderer.decodeLatencyUs,
+        decodeLatencyMaxUs = videoRenderer.decodeLatencyMaxUs,
         audioCodec = audioRenderer.codecLabel,
         audioVolume = 100 * audioManager.getStreamVolume(AudioManager.STREAM_MUSIC) /
             audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC),

@@ -50,6 +50,8 @@ data class DebugInfo(
     val videoFrames: Long = 0,
     val droppedFrames: Long = 0,
     val framePacingJitterUs: Long = 0,
+    val decodeLatencyUs: Long = 0,
+    val decodeLatencyMaxUs: Long = 0,
     val audioCodec: String = "",
     val audioVolume: Int = 100,
     val audio: AudioDebug? = null,
