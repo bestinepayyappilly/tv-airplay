@@ -10,3 +10,5 @@
 .cxx/
 
 *.jks
+# third-party projects kept for study only
+/reference/
