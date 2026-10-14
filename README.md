@@ -34,9 +34,14 @@ It runs on any Android 7.0+ device, but the tuning targets TVs like that one.
 
 Captured on the reference TV, a OnePlus 50Y1S Pro.
 
-![Now playing, then the ambient view](docs/screenshots/demo.gif)
+<p align="center">
+  <img src="docs/screenshots/iphone.gif" height="420" alt="Choosing OnePlus TV from the iPhone's Control Center">
+  &nbsp;
+  <img src="docs/screenshots/demo.gif" height="420" alt="The ambient view on the TV">
+</p>
 
-*Music from an iPhone: the now-playing screen fades to the ambient view after a few idle seconds, and the glow follows each new cover. [Full-quality MP4](docs/screenshots/demo.mp4).*
+*Left: Apple Music on an iPhone, sent to "OnePlus TV" from Control Center ([MP4](docs/screenshots/iphone.mp4)).
+Right: the TV's ambient view, with the glow tinted by the cover ([MP4](docs/screenshots/demo.mp4)).*
 
 | Now playing | Ambient view |
 | --- | --- |
