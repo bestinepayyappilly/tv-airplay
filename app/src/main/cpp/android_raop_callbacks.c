@@ -209,7 +209,7 @@ static jbyteArray _bytes(JNIEnv *env, const char *s) {
     return a;
 }
 
-/* sender's name ("Bestine's MacBook Pro") and model, from its pair-setup request */
+/* sender's name ("Someone's MacBook Pro") and model, from its pair-setup request */
 static void _report_client_request(void *cls, char *deviceid, char *model, char *name, bool *admit) {
     android_callback_ctx_t *ctx = (android_callback_ctx_t *)cls;
     (void)deviceid; (void)admit;

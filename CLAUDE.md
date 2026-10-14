@@ -59,4 +59,4 @@ git submodule update --init --depth 1          # UxPlay, OpenSSL, libplist
 
 - Don't install to the TV or change its settings unless the user asks. They are often watching it.
 - Screen-capture tooling (Argent's screen sharing) noticeably degrades playback on this TV. Read state with `adb shell dumpsys` instead, and stop capture tooling when you're done.
-- The TV's IP comes from DHCP and changes (192.168.88.x). If `adb connect` fails, scan for port 5555.
+- The TV's IP comes from DHCP and changes. If `adb connect` fails, scan the LAN for port 5555.
