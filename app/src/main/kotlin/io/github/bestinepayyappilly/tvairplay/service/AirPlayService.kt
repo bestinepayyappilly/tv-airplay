@@ -36,6 +36,7 @@ import io.github.bestinepayyappilly.tvairplay.deviceName
 import io.github.bestinepayyappilly.tvairplay.serverName
 import io.github.bestinepayyappilly.tvairplay.R
 import io.github.bestinepayyappilly.tvairplay.realDisplaySize
+import io.github.bestinepayyappilly.tvairplay.ui.isTvDevice
 import io.github.bestinepayyappilly.tvairplay.audio.DacpController
 import io.github.bestinepayyappilly.tvairplay.audio.DacpPlayer
 import io.github.bestinepayyappilly.tvairplay.audio.DmapParser
@@ -418,6 +419,7 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
         }
 
         // set display params
+        _dropAbovePanelResolution()
         lastOrientation = resources.configuration.orientation
         val (w, h) = _displaySize()
         videoRenderer.setResolution(w, h)
@@ -450,6 +452,19 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
         log("Server started on port $port")
     }
 
+    // a size above the panel isn't advertised on a TV (see _displaySize); reset such a setting to
+    // Auto so Settings shows what's actually advertised
+    private fun _dropAbovePanelResolution() {
+        val res = prefs.getString(Prefs.RESOLUTION, Prefs.DEF_RESOLUTION) ?: return
+        if (!isTvDevice() || !res.contains("x")) return
+        val (w, h) = res.split("x").map { it.toIntOrNull() ?: return }
+        val (pw, ph) = realDisplaySize().let { maxOf(it.first, it.second) to minOf(it.first, it.second) }
+        if (maxOf(w, h) > pw || minOf(w, h) > ph) {
+            prefs.edit().putString(Prefs.RESOLUTION, Prefs.DEF_RESOLUTION).apply()
+            log("Resolution $res is above the ${pw}x$ph panel; using Auto")
+        }
+    }
+
     private fun _orientationFollowsDevice(): Boolean =
         prefs.getString(Prefs.RESOLUTION, Prefs.DEF_RESOLUTION) == Prefs.AUTO
 
@@ -465,8 +480,16 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
         if (res == "portrait" || res == "landscape") return device
         // a size above the panel is allowed on purpose: senders only pick sharper encodes (and
         // H.265) when the advertised height is above 1080, even though frames get downscaled
-        val (w, h) = if (res.contains("x")) res.split("x").let { it[0].toInt() to it[1].toInt() } else device
+        var (w, h) = if (res.contains("x")) res.split("x").let { it[0].toInt() to it[1].toInt() } else device
         if (!clamp) return w to h
+        // except on a TV: low-end TV chips decode 4K slowly and then scale every frame down to the
+        // panel (a 4K Mac mirror ran at ~120 ms with 400 ms spikes on a 1080p TV, ~55 ms at 1080p),
+        // so never ask for more than the panel shows; aspect kept
+        if (isTvDevice() && (w > device.first || h > device.second)) {
+            val scale = minOf(device.first.toFloat() / w, device.second.toFloat() / h)
+            w = (w * scale).toInt() and 1.inv()
+            h = (h * scale).toInt() and 1.inv()
+        }
         // strict decoders black-screen past their limits; advertised size is only upper bound for senders
         val (maxW, maxH) = videoRenderer.maxResolution()
         return w.coerceAtMost(maxW) to h.coerceAtMost(maxH)
