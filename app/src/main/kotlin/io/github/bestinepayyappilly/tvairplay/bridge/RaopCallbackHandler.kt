@@ -21,6 +21,8 @@ interface RaopCallbackHandler {
     fun onVideoScrub(positionSeconds: Float)
     fun onVideoRate(rate: Float)
     fun onVideoStop()
+    /** A new sender connected and took over ("Allow new connections"); the old one was dropped. */
+    fun onSenderReplaced()
     // fired per sender GET /playback-info poll; polling starts before /play
     fun onVideoSessionPoll()
     // sender's device name and model, sent when it sets up a session

@@ -642,9 +642,29 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
     override fun onAv2Record() = videoV2.onRecord()
     override fun onHapPaired(secret: ByteArray) = videoV2.onPaired(secret)
 
+    // a sender that was playing music when another took over, and its remote: paused once the
+    // new sender turns out to be a different device (a sender reconnecting must not pause itself)
+    private class Replaced(val name: String?, val remote: DacpController.Endpoint, val at: Long)
+    @Volatile private var _replaced: Replaced? = null
+
+    override fun onSenderReplaced() {
+        val remote = dacpController?.endpoint()
+        _replaced = if (_audioOnly.value && remote != null)
+            Replaced(_senderName.value, remote, SystemClock.elapsedRealtime()) else null
+        log("Sender replaced by a new connection")
+    }
+
     override fun onClientInfo(name: ByteArray, model: ByteArray) {
         val n = String(name, Charsets.UTF_8).trim()
         val m = String(model, Charsets.UTF_8).trim()
+        _replaced?.let { old ->
+            _replaced = null
+            // an Apple TV pauses the sender it was taken from; otherwise it plays on by itself
+            if (n.isNotEmpty() && n != old.name && SystemClock.elapsedRealtime() - old.at < REPLACED_PAUSE_WINDOW_MS) {
+                dacpController?.pause(old.remote)
+                log("Paused ${old.name ?: "the previous sender"}: $n took over")
+            }
+        }
         if (n.isNotEmpty()) _senderName.value = n
         log("Sender: $n${if (m.isNotEmpty()) " ($m)" else ""}")
     }
@@ -1223,6 +1243,7 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
         private const val PLAY_STATE_POLL_MS = 400L
         private const val PAUSED_AFTER_SILENT_MS = 2000L
         private const val PLAY_STATE_HOLD_MS = 4000L
+        private const val REPLACED_PAUSE_WINDOW_MS = 15_000L
         private const val TAG = "AirPlayService"
         private const val VOL_SYNC_EPS = 0.033f
         private const val VOL_SYNC_MAX_STEPS = 32

@@ -69,6 +69,7 @@ void android_callbacks_init(android_callback_ctx_t *ctx, JNIEnv *env, jobject ca
     ctx->on_video_scrub = (*env)->GetMethodID(env, cls, "onVideoScrub", "(F)V");
     ctx->on_video_rate = (*env)->GetMethodID(env, cls, "onVideoRate", "(F)V");
     ctx->on_video_stop = (*env)->GetMethodID(env, cls, "onVideoStop", "()V");
+    ctx->on_sender_replaced = (*env)->GetMethodID(env, cls, "onSenderReplaced", "()V");
     ctx->on_video_session_poll = (*env)->GetMethodID(env, cls, "onVideoSessionPoll", "()V");
     ctx->on_client_info = (*env)->GetMethodID(env, cls, "onClientInfo", "([B[B)V");
     ctx->on_av2_event_port = (*env)->GetMethodID(env, cls, "onAv2EventPort", "()I");
@@ -329,6 +330,10 @@ static void _video_stop(void *cls);
 static void _video_reset(void *cls, reset_type_t t) {
     android_callback_ctx_t *ctx = (android_callback_ctx_t *)cls;
     LOGI("video_reset %d", t);
+    if (t == RESET_TYPE_NOHOLD) {
+        JNIEnv *env = _get_env(ctx);
+        if (env) (*env)->CallVoidMethod(env, ctx->callback_obj, ctx->on_sender_replaced);
+    }
     if (t == RESET_TYPE_HLS_SHUTDOWN || t == RESET_TYPE_HLS_EOS) {
         _video_stop(cls);
     }

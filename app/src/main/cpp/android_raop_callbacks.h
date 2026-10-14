@@ -15,6 +15,7 @@ typedef struct {
     jobject callback_obj;
     raop_t *raop;
     jmethodID on_video_data;
+    jmethodID on_sender_replaced;
     jmethodID on_audio_format;
     jmethodID on_video_size;
     jmethodID on_volume_change;

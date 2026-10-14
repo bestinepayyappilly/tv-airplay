@@ -77,20 +77,29 @@ class DacpController(ctx: Context) {
         }
     }
 
-    private fun _send(path: String): ListenableFuture<Unit> {
+    /** Where the current sender's remote listens; kept to reach a sender after it's replaced. */
+    data class Endpoint(val host: String, val port: Int, val activeRemote: String)
+
+    fun endpoint(): Endpoint? =
+        Endpoint(host, port, activeRemote).takeIf { it.host.isNotEmpty() && it.activeRemote.isNotEmpty() }
+
+    /** Pauses the sender at a saved endpoint, e.g. one another sender just took over from. */
+    fun pause(at: Endpoint) = _send("/ctrl-int/1/pause", at)
+
+    private fun _send(path: String, at: Endpoint? = endpoint()): ListenableFuture<Unit> {
         val result = SettableFuture.create<Unit>()
-        if (host.isEmpty() || activeRemote.isEmpty()) {
+        if (at == null) {
             result.setException(IOException("dacp endpoint not resolved"))
             return result
         }
         try {
             exec.execute {
                 try {
-                    val url = "http://$host:$port$path"
+                    val url = "http://${at.host}:${at.port}$path"
                     val conn = URL(url).openConnection() as HttpURLConnection
                     conn.requestMethod = "GET"
-                    conn.setRequestProperty("Active-Remote", activeRemote)
-                    conn.setRequestProperty("Host", "$host:$port")
+                    conn.setRequestProperty("Active-Remote", at.activeRemote)
+                    conn.setRequestProperty("Host", "${at.host}:${at.port}")
                     conn.connectTimeout = 2000
                     conn.readTimeout = 2000
                     val code = conn.responseCode
