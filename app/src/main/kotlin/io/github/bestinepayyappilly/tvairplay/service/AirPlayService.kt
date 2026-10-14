@@ -659,6 +659,9 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
         _videoPlaybackAspect.value = 16f / 9f
         _videoPlaybackSize.value = null
         _videoTitle.value = ""
+        // the title falls back to the DMAP track; drop the last music session's so it can't show here
+        _coverArtBytes = null
+        _trackInfo.value = TrackInfo()
         _videoPlaybackActive.value = true
         airPlayVideoPlayer.play(location, startPositionSeconds)
         // claim media-button routing for keys that arrive as media-session events

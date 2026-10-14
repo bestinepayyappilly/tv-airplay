@@ -214,13 +214,15 @@ fun VideoControlsTop(
             PlayerButton(onClick = onSpeedClick) {
                 Icon(Icons.Rounded.Speed, contentDescription = stringResource(R.string.select_playback_speed))
             }
-            if (videoUrl != null) {
+            // copy and download are for phones; a TV has no clipboard to use or files to keep
+            val tv = isTv()
+            if (videoUrl != null && !tv) {
                 val clipboard = LocalClipboardManager.current
                 PlayerButton(onClick = { clipboard.setText(AnnotatedString(videoUrl)) }) {
                     Icon(Icons.Rounded.ContentCopy, contentDescription = stringResource(R.string.cd_copy_url))
                 }
             }
-            if (showDownload) {
+            if (showDownload && !tv) {
                 PlayerButton(onClick = onDownloadClick) {
                     when {
                         downloadProgress == null -> Icon(
@@ -300,12 +302,15 @@ fun VideoControlsBottom(
                 )
             }
             Spacer(modifier = Modifier.weight(1f))
-            PlayerButton(modifier = Modifier.size(30.dp), onClick = onRotateClick) {
-                Icon(
-                    Icons.Rounded.ScreenRotation,
-                    contentDescription = stringResource(R.string.cd_rotate),
-                    modifier = Modifier.size(20.dp),
-                )
+            // a TV doesn't rotate
+            if (!isTv()) {
+                PlayerButton(modifier = Modifier.size(30.dp), onClick = onRotateClick) {
+                    Icon(
+                        Icons.Rounded.ScreenRotation,
+                        contentDescription = stringResource(R.string.cd_rotate),
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
             }
         }
         PlayerSeekbar(
