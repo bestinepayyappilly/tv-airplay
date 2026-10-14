@@ -36,8 +36,8 @@ android {
         applicationId = "com.castbay"
         minSdk = 24
         targetSdk = 36
-        versionCode = 31
-        versionName = "0.0.31"
+        versionCode = 100
+        versionName = "1.0.0"
 
         externalNativeBuild {
             cmake {
