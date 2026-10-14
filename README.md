@@ -1,7 +1,10 @@
 # CastBay
 
+[![Stars](https://img.shields.io/github/stars/bestinepayyappilly/tv-airplay)](https://github.com/bestinepayyappilly/tv-airplay/stargazers)
+[![GitHub](https://img.shields.io/github/downloads/bestinepayyappilly/tv-airplay/total?label=GitHub&logo=GitHub)](https://github.com/bestinepayyappilly/tv-airplay/releases)
 [![license](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![build](https://img.shields.io/github/actions/workflow/status/bestinepayyappilly/tv-airplay/apk.yml?label=build)](https://github.com/bestinepayyappilly/tv-airplay/actions/workflows/apk.yml)
+[![release](https://img.shields.io/github/v/release/bestinepayyappilly/tv-airplay)](https://github.com/bestinepayyappilly/tv-airplay/releases)
 
 CastBay is an always-on AirPlay receiver for Android TV, tuned for low-end TVs. Mirror an iPhone or Mac screen,
 stream music with cover art and controls, or cast a video from QuickTime, straight to the TV.
