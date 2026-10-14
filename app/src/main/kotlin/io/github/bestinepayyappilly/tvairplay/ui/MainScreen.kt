@@ -7,6 +7,9 @@ import android.content.res.Configuration
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn as AndroidxOptIn
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -22,6 +25,8 @@ import androidx.compose.material.icons.automirrored.rounded.VolumeOff
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.rounded.BrightnessHigh
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import android.os.SystemClock
@@ -32,8 +37,11 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -511,6 +519,72 @@ fun MainScreen(
             onExitFullscreen = { fullscreen = false },
             onPip = onPip
         )
+    } else if (isTv()) {
+        val senderName by viewModel.senderName.collectAsState()
+        val serverName by viewModel.serverName.collectAsState()
+        val mirroring by viewModel.mirroringActive.collectAsState()
+        val status = if (connections > 0 && senderName != null) {
+            TvDeviceStatus(
+                title = senderName!!,
+                subtitle = stringResource(when {
+                    mirroring -> R.string.tv_status_mirroring
+                    videoPlaybackActive -> R.string.tv_status_video
+                    audioOnly -> R.string.tv_status_audio
+                    else -> R.string.tv_status_connected
+                }),
+                connected = true,
+                receiverName = serverName,
+            )
+        } else {
+            TvDeviceStatus(serverName, stringResource(R.string.tv_status_ready), connected = false, receiverName = serverName)
+        }
+        // after a few quiet seconds of audio (longer while paused), fade to the ambient view; any key brings the UI back
+        val track by viewModel.trackInfo.collectAsState()
+        val audioPlaying by viewModel.audioPlaying.collectAsState()
+        val ambientEligible = audioOnly && connections > 0 && !mirroring && !videoPlaybackActive
+        var lastKeyAt by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
+        var ambient by remember { mutableStateOf(false) }
+        var swallowKeyUp by remember { mutableStateOf(false) }
+        LaunchedEffect(ambientEligible, lastKeyAt, audioPlaying) {
+            if (!ambientEligible) { ambient = false; return@LaunchedEffect }
+            if (ambient) return@LaunchedEffect
+            delay(if (audioPlaying) AMBIENT_IDLE_MS else AMBIENT_IDLE_PAUSED_MS)
+            ambient = true
+        }
+        Box(
+            Modifier.fillMaxSize().onPreviewKeyEvent { e ->
+                lastKeyAt = SystemClock.elapsedRealtime()
+                when {
+                    // the waking press (Back included) only dismisses the ambient view
+                    ambient && e.type == KeyEventType.KeyDown -> { ambient = false; swallowKeyUp = true; true }
+                    swallowKeyUp && e.type == KeyEventType.KeyUp -> { swallowKeyUp = false; true }
+                    else -> false
+                }
+            }
+        ) {
+            TvShell(
+                items = Tab.entries.map { t ->
+                    TvNavItem(stringResource(t.labelRes), t.icon, selected = tab == t, onSelect = { tab = t })
+                },
+                status = status,
+                glows = rememberCoverGlows(track.coverArt).takeIf { audioOnly && connections > 0 },
+            ) {
+                TabContent(
+                    tab, viewModel, video,
+                    onFullscreen = { fullscreen = true }, onPip = onPip, showAudioMode = audioOnly
+                )
+            }
+            androidx.compose.animation.AnimatedVisibility(
+                visible = ambient,
+                enter = fadeIn(tween(900)),
+                exit = fadeOut(tween(250)),
+            ) {
+                TvAmbientNowPlaying(
+                    cover = track.coverArt,
+                    title = track.title.ifEmpty { stringResource(R.string.unknown_track) },
+                )
+            }
+        }
     } else {
         Scaffold(
             bottomBar = {
@@ -640,15 +714,18 @@ private fun OverviewContent(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
-                .padding(16.dp)
-                .clip(RoundedCornerShape(16.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant),
+                // on TV the shell already sets the margins, so the cards line up with the sidebar
+                .padding(if (tv) PaddingValues(bottom = 12.dp) else PaddingValues(16.dp))
+                .then(
+                    if (tv) Modifier.tvGlassCard(RoundedCornerShape(16.dp))
+                    else Modifier.clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceVariant)
+                ),
             contentAlignment = Alignment.Center
         ) {
             val connecting = state == ServerState.RUNNING && connections > 0 &&
                 !mirroringActive && !videoPlaybackActive
             if (showAudioMode && state == ServerState.RUNNING && connections > 0) {
-                NowPlayingContent(viewModel)
+                if (tv) TvNowPlaying(viewModel) else NowPlayingContent(viewModel)
             } else {
                 if (state == ServerState.RUNNING && (mirroringActive || idlePreview)) {
                     video()
@@ -681,13 +758,13 @@ private fun OverviewContent(
                 }
                 if (state == ServerState.RUNNING && mirroringActive) {
                     Row(modifier = Modifier.align(Alignment.TopEnd).padding(4.dp)) {
-                        IconButton(onClick = onPip, modifier = Modifier.dpadFocus()) {
+                        IconButton(onClick = onPip, modifier = Modifier.dpadFocus(CircleShape)) {
                             Icon(
                                 painterResource(R.drawable.ic_pip), contentDescription = stringResource(R.string.cd_pip),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                             )
                         }
-                        IconButton(onClick = onFullscreen, modifier = Modifier.dpadFocus()) {
+                        IconButton(onClick = onFullscreen, modifier = Modifier.dpadFocus(CircleShape)) {
                             Icon(
                                 Icons.Default.Fullscreen, contentDescription = stringResource(R.string.cd_fullscreen),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
@@ -725,10 +802,12 @@ private fun OverviewContent(
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
-            shape = RoundedCornerShape(16.dp)
+                .padding(if (tv) 0.dp else 16.dp)
+                .then(if (tv) Modifier.tvGlassCard(RoundedCornerShape(16.dp)) else Modifier),
+            shape = RoundedCornerShape(16.dp),
+            colors = if (tv) CardDefaults.cardColors(containerColor = Color.Transparent) else CardDefaults.cardColors()
         ) {
-            Column(modifier = Modifier.padding(20.dp)) {
+            Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = if (tv) 14.dp else 20.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -759,12 +838,25 @@ private fun OverviewContent(
                         )
                     }
 
+                    // on focus the button turns white with dark ink, like the sidebar rows
+                    val buttonFocus = remember { MutableInteractionSource() }
+                    val buttonFocused by buttonFocus.collectIsFocusedAsState()
                     FilledTonalButton(
                         onClick = {
                             if (state == ServerState.RUNNING) viewModel.stopServer()
                             else viewModel.startServer()
                         },
-                        modifier = Modifier.dpadFocus().focusRequester(startFocus)
+                        colors = if (buttonFocused) ButtonDefaults.filledTonalButtonColors(
+                            containerColor = Color.White,
+                            contentColor = Color(0xFF14101F)
+                        ) else ButtonDefaults.filledTonalButtonColors(),
+                        interactionSource = buttonFocus,
+                        modifier = Modifier
+                            .graphicsLayer {
+                                val s = if (buttonFocused) 1.05f else 1f
+                                scaleX = s; scaleY = s
+                            }
+                            .focusRequester(startFocus)
                     ) {
                         Icon(
                             imageVector = if (state == ServerState.RUNNING) Icons.Default.Stop else Icons.Default.PlayArrow,
@@ -812,13 +904,13 @@ private fun FullscreenVideo(
             modifier = Modifier.align(Alignment.TopEnd)
         ) {
             Row(modifier = Modifier.padding(8.dp)) {
-                IconButton(onClick = onPip, modifier = Modifier.dpadFocus()) {
+                IconButton(onClick = onPip, modifier = Modifier.dpadFocus(CircleShape)) {
                     Icon(
                         painterResource(R.drawable.ic_pip), contentDescription = stringResource(R.string.cd_pip),
                         tint = Color.White.copy(alpha = 0.7f)
                     )
                 }
-                IconButton(onClick = onExitFullscreen, modifier = Modifier.dpadFocus()) {
+                IconButton(onClick = onExitFullscreen, modifier = Modifier.dpadFocus(CircleShape)) {
                     Icon(
                         Icons.Default.FullscreenExit, contentDescription = stringResource(R.string.cd_exit_fullscreen),
                         tint = Color.White.copy(alpha = 0.7f)
@@ -891,6 +983,9 @@ private fun AudioMiniController(viewModel: MainViewModel, visible: Boolean, onCl
         onClick = onClick
     )
 }
+
+private const val AMBIENT_IDLE_MS = 6_000L
+private const val AMBIENT_IDLE_PAUSED_MS = 15_000L
 
 @Composable
 @AndroidxOptIn(UnstableApi::class)
@@ -1004,13 +1099,13 @@ private fun NowPlayingContent(viewModel: MainViewModel) {
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                IconButton(onClick = { viewModel.audioVolumeDown() }, modifier = Modifier.dpadFocus()) {
+                IconButton(onClick = { viewModel.audioVolumeDown() }, modifier = Modifier.dpadFocus(CircleShape)) {
                     Icon(Icons.AutoMirrored.Rounded.VolumeDown, stringResource(R.string.cd_volume_down))
                 }
-                IconButton(onClick = { viewModel.audioMuteToggle() }, modifier = Modifier.dpadFocus()) {
+                IconButton(onClick = { viewModel.audioMuteToggle() }, modifier = Modifier.dpadFocus(CircleShape)) {
                     Icon(Icons.AutoMirrored.Rounded.VolumeOff, stringResource(R.string.cd_mute))
                 }
-                IconButton(onClick = { viewModel.audioVolumeUp() }, modifier = Modifier.dpadFocus()) {
+                IconButton(onClick = { viewModel.audioVolumeUp() }, modifier = Modifier.dpadFocus(CircleShape)) {
                     Icon(Icons.AutoMirrored.Rounded.VolumeUp, stringResource(R.string.cd_volume_up))
                 }
             }

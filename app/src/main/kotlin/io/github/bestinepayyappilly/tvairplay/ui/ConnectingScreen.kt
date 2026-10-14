@@ -39,14 +39,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.bestinepayyappilly.tvairplay.R
 
-private val Base = Color(0xFF09070F)
-private val GlowCore = Color(0xFF8B5CF6)
-private val GlowMid = Color(0xFF5B2DB3)
-private val GlowEdge = Color(0xFF2A1450)
+private val Base = Color(0xFF080808)
+private val GlowCore = Color(0xFFBDBDBD)
+private val GlowMid = Color(0xFF6E6E6E)
+private val GlowEdge = Color(0xFF2A2A2A)
 
 /**
  * Full-screen cover from the moment a sender sets up a session until its first mirrored frame
- * is on screen: a purple glow rising from the bottom, the sender's name and a spinner.
+ * is on screen: a soft white glow rising from the bottom, the sender's name and a spinner.
  * Drawn above the video surface, so the decoder renders underneath while it shows.
  */
 @Composable

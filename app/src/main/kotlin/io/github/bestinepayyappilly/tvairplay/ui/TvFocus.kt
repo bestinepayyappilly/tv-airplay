@@ -27,9 +27,10 @@ fun Modifier.focusRing(
     width: Dp = 3.dp,
 ): Modifier {
     var focused by remember { mutableStateOf(false) }
+    // fills the whole control (see focusHighlight); color and width are kept for callers
     return this
+        .focusHighlight(focused, shape)
         .onFocusChanged { focused = it.hasFocus }
-        .thenIf(focused) { border(width = width, color = color, shape = shape) }
 }
 
 // focus can only land once the target is composed; retry across frames

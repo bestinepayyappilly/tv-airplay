@@ -185,6 +185,11 @@
     <string name="debug_frames_drops">Frames: %1$d  Drops: %2$d</string>
     <string name="debug_jitter">Jitter: %1$s</string>
     <string name="connecting_title">AirPlay</string>
+    <string name="tv_status_ready">Ready for AirPlay</string>
+    <string name="tv_status_connected">Connected</string>
+    <string name="tv_status_mirroring">Mirroring</string>
+    <string name="tv_status_video">Playing video</string>
+    <string name="tv_status_audio">Playing audio</string>
     <string name="connecting_subtitle">Starting AirPlay…</string>
     <string name="debug_decode_latency">Decode latency: %1$.1f / %2$.1f ms</string>
     <string name="debug_audio">%1$s  Vol: %2$d%%</string>

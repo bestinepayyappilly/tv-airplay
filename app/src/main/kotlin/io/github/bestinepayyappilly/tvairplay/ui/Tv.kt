@@ -4,7 +4,11 @@ import android.app.UiModeManager
 import android.content.Context
 import android.content.pm.PackageManager
 import android.content.res.Configuration
-import androidx.compose.foundation.border
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.drawOutline
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -38,10 +42,28 @@ fun isTv(): Boolean {
     return remember(ctx) { ctx.isTvDevice() }
 }
 
-fun Modifier.dpadFocus(shape: Shape = RoundedCornerShape(12.dp)): Modifier = composed {
+// the focused control lights up as a whole (tinted fill, slight lift), not just an outline
+// scale = false for full-width rows and controls inside a group, where growing overlaps neighbors
+fun Modifier.dpadFocus(shape: Shape = RoundedCornerShape(12.dp), scale: Boolean = true): Modifier = composed {
     var focused by remember { mutableStateOf(false) }
-    onFocusChanged { focused = it.isFocused }
-        .border(2.dp, if (focused) MaterialTheme.colorScheme.primary else Color.Transparent, shape)
+    focusHighlight(focused, shape, scale).onFocusChanged { focused = it.isFocused }
+}
+
+fun Modifier.focusHighlight(focused: Boolean, shape: Shape, scale: Boolean = true): Modifier = composed {
+    val amount by animateFloatAsState(if (focused) 1f else 0f, tween(140), label = "focus")
+    val tint = MaterialTheme.colorScheme.primary
+    graphicsLayer {
+        val s = if (scale) 1f + 0.03f * amount else 1f
+        scaleX = s
+        scaleY = s
+    }.drawWithContent {
+        drawContent()
+        if (amount > 0f) {
+            val outline = shape.createOutline(size, layoutDirection, this)
+            drawOutline(outline, tint.copy(alpha = 0.16f * amount))
+            drawOutline(outline, Color.White.copy(alpha = 0.04f * amount))
+        }
+    }
 }
 
 fun Modifier.dpadAdjust(onLeft: () -> Unit, onRight: () -> Unit): Modifier = composed {
