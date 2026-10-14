@@ -53,6 +53,7 @@ fun SettingsScreen(viewModel: MainViewModel) {
     val overscanned by viewModel.overscanned.collectAsState()
     val requirePin by viewModel.requirePin.collectAsState()
     val allowNewConn by viewModel.allowNewConn.collectAsState()
+    val nowPlayingInfo by viewModel.nowPlayingInfo.collectAsState()
     val autoStart by viewModel.autoStart.collectAsState()
     val bootAutoStart by viewModel.bootAutoStart.collectAsState()
     val runInBackground by viewModel.runInBackground.collectAsState()
@@ -122,6 +123,13 @@ fun SettingsScreen(viewModel: MainViewModel) {
                 description = stringResource(R.string.setting_allow_new_conn_desc),
                 checked = allowNewConn,
                 onCheckedChange = { viewModel.setAllowNewConn(it) }
+            )
+
+            SettingSwitch(
+                title = stringResource(R.string.setting_now_playing_info),
+                description = stringResource(R.string.setting_now_playing_info_desc),
+                checked = nowPlayingInfo,
+                onCheckedChange = { viewModel.setNowPlayingInfo(it) }
             )
 
             val ctx = LocalContext.current

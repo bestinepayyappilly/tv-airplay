@@ -301,6 +301,16 @@ Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeSetH265Ena
     }
 }
 
+/* feature bit 50 (MetadataFeatures_3): AirPlay 2 senders then send now-playing info and artwork
+   as POST /command bplists (kMRMediaRemoteNowPlayingInfo*), handled in Kotlin (NowPlayingCommand) */
+extern "C"
+JNIEXPORT void JNICALL
+Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeSetNowPlayingInfo(
+        JNIEnv *env, jobject thiz, jlong handle, jboolean enabled) {
+    server_ctx_t *ctx = (server_ctx_t *)(intptr_t)handle;
+    if (ctx && ctx->dnssd) dnssd_set_airplay_features(ctx->dnssd, 50, enabled ? 1 : 0);
+}
+
 /* hls plist gates raop.c's hls support; feature bits 0/4 advertise it over dns-sd */
 extern "C"
 JNIEXPORT void JNICALL

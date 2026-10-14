@@ -28,6 +28,9 @@ import kotlin.concurrent.thread
  */
 class VideoV2Session(private val player: Player) {
 
+    /** Now-playing info a sender pushed as a session /command (feature bit 50). */
+    var onNowPlaying: ((NowPlayingCommand) -> Unit)? = null
+
     /** The app's AirPlay video player, as the session drives it. */
     interface Player {
         fun play(url: String, startSeconds: Float)
@@ -122,6 +125,7 @@ class VideoV2Session(private val player: Player) {
         val data = (body["params"] as? Map<*, *>)?.get("data") as? ByteArray
         if (streamId < 0 || data == null) {
             Log.i(TAG, "session command ${body["type"]} keys=${(body["params"] as? Map<*, *>)?.keys}")
+            NowPlayingCommand.parse(body)?.let { onNowPlaying?.invoke(it) }
             return null
         }
         val message = try { PlistXml.parseBinary(data) as? Map<*, *> } catch (e: Exception) {
@@ -384,8 +388,8 @@ class VideoV2Session(private val player: Player) {
         private const val TAG = "VideoV2"
 
         // video v2 / HomeKit bits (33 play queue, 35 TLS-PSK, 46 HomeKit pairing, 48 transient
-        // pairing, 49 video v2), as bits of the features' second word
-        private const val V2_BITS_HIGH = (1L shl 1) or (1L shl 3) or (1L shl 14) or (1L shl 16) or (1L shl 17)
+        // pairing, 49 video v2) and 50 (now-playing bplists), as bits of the features' second word
+        private const val V2_BITS_HIGH = (1L shl 1) or (1L shl 3) or (1L shl 14) or (1L shl 16) or (1L shl 17) or (1L shl 18)
 
         /**
          * The _raop._tcp record without the video v2 bits. Apple Music's legacy AirPlay audio sender

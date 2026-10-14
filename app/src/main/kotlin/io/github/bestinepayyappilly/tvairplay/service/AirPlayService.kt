@@ -220,6 +220,7 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
 
     override fun onCreate() {
         super.onCreate()
+        videoV2.onNowPlaying = ::_onNowPlayingCommand
         createNotificationChannel()
         dacpController = DacpController(this)
         dacpPlayer = DacpPlayer(
@@ -407,6 +408,7 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
         val advertiseVideo = prefs.getBoolean(Prefs.ADVERTISE_VIDEO, Prefs.DEF_ADVERTISE_VIDEO)
         val advertiseAudio = prefs.getBoolean(Prefs.ADVERTISE_AUDIO, Prefs.DEF_ADVERTISE_AUDIO)
         NativeBridge.nativeSetHlsEnabled(nativeHandle, advertiseVideo)
+        NativeBridge.nativeSetNowPlayingInfo(nativeHandle, prefs.getBoolean(Prefs.NOW_PLAYING_INFO, Prefs.DEF_NOW_PLAYING_INFO))
         NativeBridge.nativeSetLang(nativeHandle, "", "", resources.configuration.locales.toLanguageTags().replace(',', ':'))
         NativeBridge.nativeSetAudioEnabled(nativeHandle, advertiseAudio)
         NativeBridge.nativeSetPlist(nativeHandle, "maxFPS", maxFps)
@@ -662,6 +664,7 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
         // the title falls back to the DMAP track; drop the last music session's so it can't show here
         _coverArtBytes = null
         _trackInfo.value = TrackInfo()
+        _updateMediaMetadata()
         _videoPlaybackActive.value = true
         airPlayVideoPlayer.play(location, startPositionSeconds)
         // claim media-button routing for keys that arrive as media-session events
@@ -837,6 +840,41 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
         log("Track: ${info.artist} - ${info.title}")
     }
 
+    // feature bit 50: the sender's own now-playing info, fuller than DMAP (some apps send no DMAP)
+    private fun _onNowPlayingCommand(np: NowPlayingCommand) {
+        val cur = _trackInfo.value
+        val info = cur.copy(
+            title = np.title ?: cur.title,
+            artist = np.artist ?: cur.artist,
+            album = np.album ?: cur.album,
+            durationMs = np.durationMs ?: cur.durationMs,
+        )
+        if (info != cur) {
+            _trackInfo.value = info
+            log("Track (now playing): ${info.artist} - ${info.title}")
+        }
+        np.durationMs?.takeIf { it > 0 }?.let { _durationMs.value = it }
+        np.elapsedMs?.let {
+            _positionMs.value = it
+            _progressBaseMs = it
+            _progressBaseTime = SystemClock.elapsedRealtime()
+        }
+        // the sender's own play state, sent on every play and pause; better than inferring it from
+        // silence, but a just-made play/pause on the TV wins until the sender has acted on it
+        np.rate?.let { rate ->
+            if (SystemClock.elapsedRealtime() >= _playStateHoldUntil && (rate > 0) != _playing.value) {
+                _setPlaying(rate > 0)
+                // the stated state stands over the silence watch's reading while the audio catches up
+                _silenceWatchHoldUntil = SystemClock.elapsedRealtime() + PLAY_STATE_HOLD_MS
+            }
+        }
+        np.artwork?.let { onCoverArt(it) } ?: run {
+            _updateMediaMetadata()
+            _refreshDacpPlayer()
+        }
+        _updatePlaybackState()
+    }
+
     override fun onCoverArt(data: ByteArray) {
         val bmp = BitmapFactory.decodeByteArray(data, 0, data.size) ?: return
         _coverArtBytes = data
@@ -924,13 +962,15 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
     }
 
     @Volatile private var _playStateHoldUntil = 0L
+    @Volatile private var _silenceWatchHoldUntil = 0L
 
     // a paused sender keeps streaming, but only silence: follow play state from that
     private val _playStateWatch = object : Runnable {
         override fun run() {
             if (!_audioOnly.value) return
             _mainHandler.postDelayed(this, PLAY_STATE_POLL_MS)
-            if (SystemClock.elapsedRealtime() < _playStateHoldUntil) return
+            val now = SystemClock.elapsedRealtime()
+            if (now < _playStateHoldUntil || now < _silenceWatchHoldUntil) return
             val silent = audioRenderer.silentMs()
             if (silent < 0) return
             // the pause began when the sound stopped, not now

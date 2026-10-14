@@ -97,6 +97,8 @@
     <string name="setting_require_pin_desc">Require 4-digit PIN for each new connection</string>
     <string name="setting_allow_new_conn">Allow new connections</string>
     <string name="setting_allow_new_conn_desc">Drop current client when a new one connects</string>
+    <string name="setting_now_playing_info">AirPlay 2 now-playing info</string>
+    <string name="setting_now_playing_info_desc">Experimental: ask senders for track info and artwork the AirPlay 2 way. Turn off if audio or mirroring misbehaves</string>
 
     <!-- Settings: Display -->
     <string name="setting_idle_preview">Idle screen preview</string>
