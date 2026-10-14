@@ -32,6 +32,8 @@ import androidx.lifecycle.lifecycleScope
 import androidx.media.app.NotificationCompat as MediaNotificationCompat
 import io.github.bestinepayyappilly.tvairplay.MainActivity
 import io.github.bestinepayyappilly.tvairplay.Prefs
+import io.github.bestinepayyappilly.tvairplay.deviceName
+import io.github.bestinepayyappilly.tvairplay.serverName
 import io.github.bestinepayyappilly.tvairplay.R
 import io.github.bestinepayyappilly.tvairplay.realDisplaySize
 import io.github.bestinepayyappilly.tvairplay.audio.DacpController
@@ -233,7 +235,7 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
                 )
             },
             positionMs = ::currentPositionMs,
-            setPlaying = ::_setPlaying,
+            setPlaying = ::_setPlayingByUser,
         )
         mediaSession = MediaSessionCompat(this, "AirPlay").apply {
             setCallback(object : MediaSessionCompat.Callback() {
@@ -242,7 +244,7 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
                         airPlayVideoPlayer.setPlaying(true)
                         return
                     }
-                    _setPlaying(true)
+                    _setPlayingByUser(true)
                     dacpController?.play()
                 }
                 override fun onPause() {
@@ -250,7 +252,7 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
                         airPlayVideoPlayer.setPlaying(false)
                         return
                     }
-                    _setPlaying(false)
+                    _setPlayingByUser(false)
                     dacpController?.pause()
                 }
                 override fun onStop() {
@@ -347,7 +349,7 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
         val restarted = intent == null && prefs.getBoolean(Prefs.BOOT_AUTO_START, Prefs.DEF_BOOT_AUTO_START)
         if (intent?.action == ACTION_START_SERVER || restarted) {
             promoteToForeground()
-            val name = prefs.getString(Prefs.SERVER_NAME, Prefs.DEF_SERVER_NAME) ?: Prefs.DEF_SERVER_NAME
+            val name = prefs.serverName(this)
             startServer(name, ensureServiceStarted = false)
             if (_serverState.value != ServerState.RUNNING) stopSelf(startId)
         }
@@ -360,7 +362,7 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
 
     private fun startServer(name: String, ensureServiceStarted: Boolean) {
         if (_serverState.value == ServerState.RUNNING) return
-        val effectiveName = name.ifBlank { Prefs.DEF_SERVER_NAME }
+        val effectiveName = name.ifBlank { deviceName() }
 
         val hwAddr = getHwAddr()
         val keyFile = filesDir.resolve("airplay.pem").absolutePath
@@ -590,6 +592,7 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
     }
 
     override fun onDestroy() {
+        _mainHandler.removeCallbacks(_playStateWatch)
         stopServer()
         dacpPlayer.release()
         mediaReceiver?.let {
@@ -849,7 +852,8 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
         _durationMs.value = durMs
         _progressBaseMs = posMs
         _progressBaseTime = SystemClock.elapsedRealtime()
-        _playing.value = true
+        // senders resend progress on pause as well as play, so it says nothing about play state;
+        // _playStateWatch follows that from the audio itself
         _updatePlaybackState()
         _refreshDacpPlayer()
     }
@@ -876,6 +880,8 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
         _audioOnly.value = audioOnly
         _refreshDacpPlayer()
         if (audioOnly && !prev) {
+            _mainHandler.removeCallbacks(_playStateWatch)
+            _mainHandler.post(_playStateWatch)
             mediaSession?.isActive = true
             log("Audio mode")
         } else if (!audioOnly && prev) {
@@ -903,11 +909,36 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
 
     fun togglePlayPause() {
         val nowPlaying = !_playing.value
-        _setPlaying(nowPlaying)
+        _setPlayingByUser(nowPlaying)
         dacpController?.let { if (nowPlaying) it.play() else it.pause() }
     }
 
-    private fun _setPlaying(playing: Boolean) {
+    // a play/pause from this side: show it now, and give the sender time to act on it before
+    // _playStateWatch reads the audio again (buffered sound drains, resumed sound takes a moment)
+    private fun _setPlayingByUser(playing: Boolean) {
+        _playStateHoldUntil = SystemClock.elapsedRealtime() + PLAY_STATE_HOLD_MS
+        _setPlaying(playing)
+    }
+
+    @Volatile private var _playStateHoldUntil = 0L
+
+    // a paused sender keeps streaming, but only silence: follow play state from that
+    private val _playStateWatch = object : Runnable {
+        override fun run() {
+            if (!_audioOnly.value) return
+            _mainHandler.postDelayed(this, PLAY_STATE_POLL_MS)
+            if (SystemClock.elapsedRealtime() < _playStateHoldUntil) return
+            val silent = audioRenderer.silentMs()
+            if (silent < 0) return
+            // the pause began when the sound stopped, not now
+            if (_playing.value && silent >= PAUSED_AFTER_SILENT_MS) _setPlaying(false, rewindMs = silent)
+            else if (!_playing.value && silent < PLAY_STATE_POLL_MS) _setPlaying(true)
+        }
+    }
+
+    private fun _setPlaying(playing: Boolean, rewindMs: Long = 0) {
+        // read the extrapolated position while still playing; once paused it returns the stale base
+        if (!playing && _playing.value) _positionMs.value = (currentPositionMs() - rewindMs).coerceAtLeast(0)
         _playing.value = playing
         _refreshDacpPlayer()
         if (playing) {
@@ -915,8 +946,7 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
             _progressBaseMs = _positionMs.value
             _progressBaseTime = SystemClock.elapsedRealtime()
         } else {
-            // freeze position
-            _positionMs.value = currentPositionMs()
+            // freeze position (captured above)
             _progressBaseTime = 0
         }
         _updatePlaybackState()
@@ -1147,6 +1177,9 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
     }
 
     companion object {
+        private const val PLAY_STATE_POLL_MS = 400L
+        private const val PAUSED_AFTER_SILENT_MS = 2000L
+        private const val PLAY_STATE_HOLD_MS = 4000L
         private const val TAG = "AirPlayService"
         private const val VOL_SYNC_EPS = 0.033f
         private const val VOL_SYNC_MAX_STEPS = 32

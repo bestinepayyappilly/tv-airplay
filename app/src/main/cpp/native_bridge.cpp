@@ -435,6 +435,15 @@ Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeServerAudi
     return audio_engine_get_debug(ctx->cb_ctx.audio_engine, addr, (size_t)cap) ? JNI_TRUE : JNI_FALSE;
 }
 
+extern "C"
+JNIEXPORT jlong JNICALL
+Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeServerAudioSilentMs(
+        JNIEnv *env, jobject thiz, jlong handle) {
+    server_ctx_t *ctx = (server_ctx_t *)(intptr_t)handle;
+    if (!ctx || !ctx->cb_ctx.audio_engine) return -1;
+    return (jlong)audio_engine_silent_ms(ctx->cb_ctx.audio_engine);
+}
+
 // plist format conversion for the AirPlay video v2 event channel, which Kotlin speaks in XML
 static jbyteArray _plist_convert(JNIEnv *env, jbyteArray in, bool to_bin) {
     jsize len = env->GetArrayLength(in);

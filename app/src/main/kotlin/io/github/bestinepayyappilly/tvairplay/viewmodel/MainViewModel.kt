@@ -11,6 +11,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.Player
 import io.github.bestinepayyappilly.tvairplay.Prefs
+import io.github.bestinepayyappilly.tvairplay.serverName
 import io.github.bestinepayyappilly.tvairplay.audio.TrackInfo
 import io.github.bestinepayyappilly.tvairplay.service.AirPlayService
 import io.github.bestinepayyappilly.tvairplay.service.AirPlayService.ServerState
@@ -106,7 +107,7 @@ class MainViewModel @Inject constructor(app: Application) : AndroidViewModel(app
     private val _videoResolution = MutableStateFlow("")
     val videoResolution: StateFlow<String> = _videoResolution.asStateFlow()
 
-    private val _serverName = MutableStateFlow(prefs.getString(Prefs.SERVER_NAME, Prefs.DEF_SERVER_NAME)!!)
+    private val _serverName = MutableStateFlow(prefs.serverName(app))
     val serverName: StateFlow<String> = _serverName.asStateFlow()
 
     // settings
@@ -304,6 +305,9 @@ class MainViewModel @Inject constructor(app: Application) : AndroidViewModel(app
 
     private val _trackInfo = MutableStateFlow(TrackInfo())
     val trackInfo: StateFlow<TrackInfo> = _trackInfo.asStateFlow()
+
+    private val _audioPlaying = MutableStateFlow(false)
+    val audioPlaying: StateFlow<Boolean> = _audioPlaying.asStateFlow()
 
 
     // logs
@@ -626,6 +630,7 @@ class MainViewModel @Inject constructor(app: Application) : AndroidViewModel(app
             _mirrorFrameShown.value = it.mirrorFrameShown
             _sessionLive.value = it.sessionLive
             _trackInfo.value = it.trackInfo.value
+            _audioPlaying.value = it.playing.value
             if (_debugEnabled.value) {
                 _debugInfo.value = it.collectDebugInfo()
             }

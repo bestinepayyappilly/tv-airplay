@@ -55,6 +55,8 @@ class AudioRenderer {
     private val debugBuf = java.nio.ByteBuffer.allocateDirect(DEBUG_BUF_BYTES)
         .order(java.nio.ByteOrder.LITTLE_ENDIAN)
 
+    fun silentMs(): Long = if (serverHandle == 0L) -1 else NativeBridge.nativeServerAudioSilentMs(serverHandle)
+
     // field order/width must mirror native packed AudioDebugData exactly
     @Synchronized
     fun audioDebug(): AudioDebug? {

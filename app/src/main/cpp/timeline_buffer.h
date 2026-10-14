@@ -217,9 +217,19 @@ public:
 
     void noteOutputBufferFrames(int frames) { mTracker.noteOutputBufferFrames(frames); }
 
+    // monoNs() of the last written packet with sound in it, 0 if none yet
+    int64_t lastSoundNs() const { return mLastSoundNs.load(std::memory_order_relaxed); }
+
     // producer: push samples
     void write(const int16_t *pcm, size_t samples, int64_t ptsNs) {
         if (samples == 0) return;
+        // a paused sender keeps streaming digital silence; note when real sound last arrived
+        for (size_t i = 0; i < samples; i++) {
+            if (pcm[i] > SOUND_FLOOR || pcm[i] < -SOUND_FLOOR) {
+                mLastSoundNs.store(monoNs(), std::memory_order_relaxed);
+                break;
+            }
+        }
         // pts 0 = sender clock not NTP synced yet
         if (ptsNs == 0) {
             mRing.write(pcm, samples);
@@ -345,6 +355,8 @@ public:
     }
 
 private:
+    static constexpr int16_t SOUND_FLOOR = 16;  // dither-level noise still counts as silence
+    std::atomic<int64_t> mLastSoundNs{0};
 
     // latency ceiling for cushion: 2x, but never below TRIM_FLOOR_MS so tiny cushion
     // still gets slack before a trim (trim costs a glitch)

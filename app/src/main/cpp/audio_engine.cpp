@@ -150,6 +150,14 @@ struct AudioEngine {
             mDecodeErrors.fetch_add(1, std::memory_order_relaxed);
     }
 
+    // ms since the stream last carried sound, -1 before any
+    int64_t silentMs() {
+        std::lock_guard<std::mutex> lk(mRebuildLock);
+        if (!mTimeline) return -1;
+        const int64_t last = mTimeline->lastSoundNs();
+        return last ? (monoNs() - last) / 1000000 : -1;
+    }
+
 private:
     static int ctIndex(int ct) {
         switch (ct) {
@@ -251,6 +259,10 @@ void audio_engine_destroy(AudioEngine *engine) {
     if (!engine) return;
     engine->stop();
     delete engine;
+}
+
+int64_t audio_engine_silent_ms(AudioEngine *engine) {
+    return engine ? engine->silentMs() : -1;
 }
 
 // decode straight from RAOP audio callback, no JNI crossing
