@@ -14,6 +14,22 @@ which is built on [UxPlay](https://github.com/FDH2/UxPlay). The reference device
 an MStar `m7632` running Android TV 11, with 1.8 GB of RAM, a 32-bit (armeabi-v7a) userland and a 1080p60 UI plane.
 It runs on any Android 7.0+ device, but the tuning targets TVs like that one.
 
+## Quickstart
+
+1. **Download** the APK from the [latest release](https://github.com/bestinepayyappilly/tv-airplay/releases/latest), or from the [`releases/`](releases) folder:
+   - [`CastBay-v1.0.0-armeabi-v7a.apk`](releases/CastBay-v1.0.0-armeabi-v7a.apk) for most Android TVs (8 MB)
+   - [`CastBay-v1.0.0-universal.apk`](releases/CastBay-v1.0.0-universal.apk) if you're unsure (27 MB)
+2. **Install it on the TV.** Use either:
+   - adb: turn on Developer options and Network debugging on the TV, then run
+     `adb connect <tv-ip>:5555 && adb install CastBay-v1.0.0-armeabi-v7a.apk`
+   - a file manager or the Downloader app: open the APK on the TV and allow installs from that app.
+3. **Open CastBay once.** From then on it starts with the TV and keeps running in the background.
+4. **(Optional) Let it wake the TV** when a device connects, by granting "Display over other apps".
+   Some TVs hide that setting; over adb it's `adb shell appops set com.castbay SYSTEM_ALERT_WINDOW allow`.
+5. **Connect.** The TV appears under its own name (for example "OnePlus TV"):
+   - iPhone or iPad: Control Center → Screen Mirroring, or the AirPlay button in a music or video app.
+   - Mac: Control Center → Screen Mirroring, Sound output, or QuickTime's AirPlay button.
+
 > [!WARNING]
 > DRM-protected content (Apple TV+, Netflix and similar from an iPhone) shows a black screen. That is FairPlay DRM and can't be worked around.
 
