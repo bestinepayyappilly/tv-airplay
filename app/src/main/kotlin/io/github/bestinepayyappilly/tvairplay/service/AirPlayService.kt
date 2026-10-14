@@ -430,7 +430,7 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
         }
 
         // register mdns services
-        val raopTxt = NativeBridge.nativeGetRaopTxtRecords(nativeHandle) ?: emptyMap()
+        val raopTxt = VideoV2Session.legacyAudioTxt(NativeBridge.nativeGetRaopTxtRecords(nativeHandle) ?: emptyMap())
         val airplayTxt = NativeBridge.nativeGetAirplayTxtRecords(nativeHandle) ?: emptyMap()
         val raopName = NativeBridge.nativeGetRaopServiceName(nativeHandle) ?: "AirPlay"
         val resolvedName = NativeBridge.nativeGetServerName(nativeHandle) ?: effectiveName

@@ -380,7 +380,25 @@ class VideoV2Session(private val player: Player) {
         Log.i(TAG, "event channel EOF")
     }
 
-    private companion object {
-        const val TAG = "VideoV2"
+    companion object {
+        private const val TAG = "VideoV2"
+
+        // video v2 / HomeKit bits (33 play queue, 35 TLS-PSK, 46 HomeKit pairing, 48 transient
+        // pairing, 49 video v2), as bits of the features' second word
+        private const val V2_BITS_HIGH = (1L shl 1) or (1L shl 3) or (1L shl 14) or (1L shl 16) or (1L shl 17)
+
+        /**
+         * The _raop._tcp record without the video v2 bits. Apple Music's legacy AirPlay audio sender
+         * reads this record and fails its FairPlay setup (SendFPSAP -3256) when they're there;
+         * AirPlay 2 senders take the bits from _airplay._tcp instead.
+         */
+        fun legacyAudioTxt(txt: Map<String, String>): Map<String, String> {
+            val ft = txt["ft"] ?: return txt
+            val words = ft.split(",")
+            if (words.size != 2) return txt
+            val high = words[1].removePrefix("0x").toLongOrNull(16) ?: return txt
+            val cleared = high and V2_BITS_HIGH.inv()
+            return txt + ("ft" to "${words[0]},0x${cleared.toString(16).uppercase()}")
+        }
     }
 }
