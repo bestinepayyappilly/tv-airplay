@@ -1,8 +1,8 @@
 # Keep JNI callback interface (called from native code)
--keep class io.github.bestinepayyappilly.tvairplay.bridge.RaopCallbackHandler { *; }
--keep class * implements io.github.bestinepayyappilly.tvairplay.bridge.RaopCallbackHandler { *; }
--keep class io.github.bestinepayyappilly.tvairplay.bridge.LogListener { *; }
--keep class * implements io.github.bestinepayyappilly.tvairplay.bridge.LogListener { *; }
+-keep class com.castbay.bridge.RaopCallbackHandler { *; }
+-keep class * implements com.castbay.bridge.RaopCallbackHandler { *; }
+-keep class com.castbay.bridge.LogListener { *; }
+-keep class * implements com.castbay.bridge.LogListener { *; }
 
 # Keep NativeBridge native methods
--keep class io.github.bestinepayyappilly.tvairplay.bridge.NativeBridge { *; }
+-keep class com.castbay.bridge.NativeBridge { *; }

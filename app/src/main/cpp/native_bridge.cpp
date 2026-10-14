@@ -48,7 +48,7 @@ static void _log_callback(void *cls, int level, const char *msg) {
 
 extern "C"
 JNIEXPORT jlong JNICALL
-Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeInit(
+Java_com_castbay_bridge_NativeBridge_nativeInit(
         JNIEnv *env, jobject thiz,
         jobject callback, jbyteArray hwAddr, jstring name, jstring keyFile,
         jboolean nohold, jboolean requirePin) {
@@ -123,7 +123,7 @@ Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeInit(
 
 extern "C"
 JNIEXPORT jint JNICALL
-Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeStart(
+Java_com_castbay_bridge_NativeBridge_nativeStart(
         JNIEnv *env, jobject thiz, jlong handle, jint requestedPort) {
 
     server_ctx_t *ctx = (server_ctx_t *)(intptr_t)handle;
@@ -152,7 +152,7 @@ Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeStart(
 
 extern "C"
 JNIEXPORT void JNICALL
-Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeStop(
+Java_com_castbay_bridge_NativeBridge_nativeStop(
         JNIEnv *env, jobject thiz, jlong handle) {
 
     server_ctx_t *ctx = (server_ctx_t *)(intptr_t)handle;
@@ -169,7 +169,7 @@ Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeStop(
 
 extern "C"
 JNIEXPORT void JNICALL
-Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeDestroy(
+Java_com_castbay_bridge_NativeBridge_nativeDestroy(
         JNIEnv *env, jobject thiz, jlong handle) {
 
     server_ctx_t *ctx = (server_ctx_t *)(intptr_t)handle;
@@ -193,7 +193,7 @@ Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeDestroy(
 
 extern "C"
 JNIEXPORT void JNICALL
-Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeSetDisplaySize(
+Java_com_castbay_bridge_NativeBridge_nativeSetDisplaySize(
         JNIEnv *env, jobject thiz, jlong handle, jint w, jint h, jint fps) {
 
     server_ctx_t *ctx = (server_ctx_t *)(intptr_t)handle;
@@ -235,7 +235,7 @@ static jobject _build_txt_map(JNIEnv *env, dnssd_t *dnssd, int is_raop) {
 
 extern "C"
 JNIEXPORT jobject JNICALL
-Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeGetRaopTxtRecords(
+Java_com_castbay_bridge_NativeBridge_nativeGetRaopTxtRecords(
         JNIEnv *env, jobject thiz, jlong handle) {
 
     server_ctx_t *ctx = (server_ctx_t *)(intptr_t)handle;
@@ -245,7 +245,7 @@ Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeGetRaopTxt
 
 extern "C"
 JNIEXPORT jobject JNICALL
-Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeGetAirplayTxtRecords(
+Java_com_castbay_bridge_NativeBridge_nativeGetAirplayTxtRecords(
         JNIEnv *env, jobject thiz, jlong handle) {
 
     server_ctx_t *ctx = (server_ctx_t *)(intptr_t)handle;
@@ -255,7 +255,7 @@ Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeGetAirplay
 
 extern "C"
 JNIEXPORT jstring JNICALL
-Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeGetRaopServiceName(
+Java_com_castbay_bridge_NativeBridge_nativeGetRaopServiceName(
         JNIEnv *env, jobject thiz, jlong handle) {
 
     server_ctx_t *ctx = (server_ctx_t *)(intptr_t)handle;
@@ -265,7 +265,7 @@ Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeGetRaopSer
 
 extern "C"
 JNIEXPORT jstring JNICALL
-Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeGetServerName(
+Java_com_castbay_bridge_NativeBridge_nativeGetServerName(
         JNIEnv *env, jobject thiz, jlong handle) {
 
     server_ctx_t *ctx = (server_ctx_t *)(intptr_t)handle;
@@ -277,7 +277,7 @@ Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeGetServerN
 
 extern "C"
 JNIEXPORT void JNICALL
-Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeSetPlist(
+Java_com_castbay_bridge_NativeBridge_nativeSetPlist(
         JNIEnv *env, jobject thiz, jlong handle, jstring key, jint value) {
 
     server_ctx_t *ctx = (server_ctx_t *)(intptr_t)handle;
@@ -289,7 +289,7 @@ Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeSetPlist(
 
 extern "C"
 JNIEXPORT void JNICALL
-Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeSetH265Enabled(
+Java_com_castbay_bridge_NativeBridge_nativeSetH265Enabled(
         JNIEnv *env, jobject thiz, jlong handle, jboolean enabled) {
 
     server_ctx_t *ctx = (server_ctx_t *)(intptr_t)handle;
@@ -305,7 +305,7 @@ Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeSetH265Ena
    as POST /command bplists (kMRMediaRemoteNowPlayingInfo*), handled in Kotlin (NowPlayingCommand) */
 extern "C"
 JNIEXPORT void JNICALL
-Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeSetNowPlayingInfo(
+Java_com_castbay_bridge_NativeBridge_nativeSetNowPlayingInfo(
         JNIEnv *env, jobject thiz, jlong handle, jboolean enabled) {
     server_ctx_t *ctx = (server_ctx_t *)(intptr_t)handle;
     if (ctx && ctx->dnssd) dnssd_set_airplay_features(ctx->dnssd, 50, enabled ? 1 : 0);
@@ -314,7 +314,7 @@ Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeSetNowPlay
 /* hls plist gates raop.c's hls support; feature bits 0/4 advertise it over dns-sd */
 extern "C"
 JNIEXPORT void JNICALL
-Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeSetHlsEnabled(
+Java_com_castbay_bridge_NativeBridge_nativeSetHlsEnabled(
         JNIEnv *env, jobject thiz, jlong handle, jboolean enabled) {
 
     server_ctx_t *ctx = (server_ctx_t *)(intptr_t)handle;
@@ -340,7 +340,7 @@ Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeSetHlsEnab
 
 extern "C"
 JNIEXPORT void JNICALL
-Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeSetLang(
+Java_com_castbay_bridge_NativeBridge_nativeSetLang(
         JNIEnv *env, jobject thiz, jlong handle, jstring requested, jstring subtitles, jstring system) {
 
     server_ctx_t *ctx = (server_ctx_t *)(intptr_t)handle;
@@ -359,7 +359,7 @@ Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeSetLang(
 /* feature bit 9 advertises audio support over dns-sd */
 extern "C"
 JNIEXPORT void JNICALL
-Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeSetAudioEnabled(
+Java_com_castbay_bridge_NativeBridge_nativeSetAudioEnabled(
         JNIEnv *env, jobject thiz, jlong handle, jboolean enabled) {
 
     server_ctx_t *ctx = (server_ctx_t *)(intptr_t)handle;
@@ -369,7 +369,7 @@ Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeSetAudioEn
 
 extern "C"
 JNIEXPORT void JNICALL
-Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeSetCodecs(
+Java_com_castbay_bridge_NativeBridge_nativeSetCodecs(
         JNIEnv *env, jobject thiz, jlong handle, jboolean alac, jboolean aac) {
 
     server_ctx_t *ctx = (server_ctx_t *)(intptr_t)handle;
@@ -379,7 +379,7 @@ Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeSetCodecs(
 
 extern "C"
 JNIEXPORT void JNICALL
-Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeUpdatePlaybackInfo(
+Java_com_castbay_bridge_NativeBridge_nativeUpdatePlaybackInfo(
         JNIEnv *env, jobject thiz, jlong handle,
         jfloat position, jfloat duration, jfloat rate, jboolean readyToPlay) {
 
@@ -390,14 +390,14 @@ Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeUpdatePlay
 
 extern "C"
 JNIEXPORT void JNICALL
-Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeSetDefaultStreamValues(
+Java_com_castbay_bridge_NativeBridge_nativeSetDefaultStreamValues(
         JNIEnv *env, jobject thiz, jint sampleRate, jint framesPerBurst) {
     audio_engine_set_default_stream_values(sampleRate, framesPerBurst);
 }
 
 extern "C"
 JNIEXPORT jboolean JNICALL
-Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeServerAudioStart(
+Java_com_castbay_bridge_NativeBridge_nativeServerAudioStart(
         JNIEnv *env, jobject thiz, jlong handle) {
     server_ctx_t *ctx = (server_ctx_t *)(intptr_t)handle;
     if (!ctx || !ctx->cb_ctx.audio_engine) return JNI_FALSE;
@@ -406,7 +406,7 @@ Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeServerAudi
 
 extern "C"
 JNIEXPORT void JNICALL
-Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeServerAudioStop(
+Java_com_castbay_bridge_NativeBridge_nativeServerAudioStop(
         JNIEnv *env, jobject thiz, jlong handle) {
     server_ctx_t *ctx = (server_ctx_t *)(intptr_t)handle;
     if (ctx && ctx->cb_ctx.audio_engine) audio_engine_pause(ctx->cb_ctx.audio_engine);
@@ -414,7 +414,7 @@ Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeServerAudi
 
 extern "C"
 JNIEXPORT jboolean JNICALL
-Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeServerAudioConfigure(
+Java_com_castbay_bridge_NativeBridge_nativeServerAudioConfigure(
         JNIEnv *env, jobject thiz, jlong handle, jint cushionMs, jint percentilePct,
         jint oboeBufferFrames, jboolean forceSwAlac, jboolean realtimePriority, jboolean lowLatency,
         jboolean benchmarkLog) {
@@ -427,7 +427,7 @@ Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeServerAudi
 
 extern "C"
 JNIEXPORT void JNICALL
-Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeServerAudioFormat(
+Java_com_castbay_bridge_NativeBridge_nativeServerAudioFormat(
         JNIEnv *env, jobject thiz, jlong handle, jint ct, jint spf) {
     server_ctx_t *ctx = (server_ctx_t *)(intptr_t)handle;
     if (ctx && ctx->cb_ctx.audio_engine) audio_engine_on_format(ctx->cb_ctx.audio_engine, ct, spf);
@@ -435,7 +435,7 @@ Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeServerAudi
 
 extern "C"
 JNIEXPORT jboolean JNICALL
-Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeServerAudioDebug(
+Java_com_castbay_bridge_NativeBridge_nativeServerAudioDebug(
         JNIEnv *env, jobject thiz, jlong handle, jobject buf) {
     server_ctx_t *ctx = (server_ctx_t *)(intptr_t)handle;
     if (!ctx || !ctx->cb_ctx.audio_engine || !buf) return JNI_FALSE;
@@ -447,7 +447,7 @@ Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeServerAudi
 
 extern "C"
 JNIEXPORT jlong JNICALL
-Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_nativeServerAudioSilentMs(
+Java_com_castbay_bridge_NativeBridge_nativeServerAudioSilentMs(
         JNIEnv *env, jobject thiz, jlong handle) {
     server_ctx_t *ctx = (server_ctx_t *)(intptr_t)handle;
     if (!ctx || !ctx->cb_ctx.audio_engine) return -1;
@@ -477,20 +477,20 @@ static jbyteArray _plist_convert(JNIEnv *env, jbyteArray in, bool to_bin) {
 
 extern "C"
 JNIEXPORT jbyteArray JNICALL
-Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_plistXmlToBin(JNIEnv *env, jobject, jbyteArray xml) {
+Java_com_castbay_bridge_NativeBridge_plistXmlToBin(JNIEnv *env, jobject, jbyteArray xml) {
     return _plist_convert(env, xml, true);
 }
 
 extern "C"
 JNIEXPORT jbyteArray JNICALL
-Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_plistBinToXml(JNIEnv *env, jobject, jbyteArray bin) {
+Java_com_castbay_bridge_NativeBridge_plistBinToXml(JNIEnv *env, jobject, jbyteArray bin) {
     return _plist_convert(env, bin, false);
 }
 
 // AirPlay video v2: the sender serves a local file over TLS-PSK; ExoPlayer reads it through this
 extern "C"
 JNIEXPORT jlong JNICALL
-Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_pskProxyStart(
+Java_com_castbay_bridge_NativeBridge_pskProxyStart(
         JNIEnv *env, jobject, jstring host, jint port, jbyteArray psk) {
     const char *host_c = env->GetStringUTFChars(host, NULL);
     jsize len = env->GetArrayLength(psk);
@@ -503,12 +503,12 @@ Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_pskProxyStart(
 
 extern "C"
 JNIEXPORT jint JNICALL
-Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_pskProxyPort(JNIEnv *, jobject, jlong handle) {
+Java_com_castbay_bridge_NativeBridge_pskProxyPort(JNIEnv *, jobject, jlong handle) {
     return psk_proxy_port(reinterpret_cast<psk_proxy_t *>((intptr_t) handle));
 }
 
 extern "C"
 JNIEXPORT void JNICALL
-Java_io_github_bestinepayyappilly_tvairplay_bridge_NativeBridge_pskProxyStop(JNIEnv *, jobject, jlong handle) {
+Java_com_castbay_bridge_NativeBridge_pskProxyStop(JNIEnv *, jobject, jlong handle) {
     psk_proxy_stop(reinterpret_cast<psk_proxy_t *>((intptr_t) handle));
 }
