@@ -30,6 +30,22 @@ It runs on any Android 7.0+ device, but the tuning targets TVs like that one.
    - iPhone or iPad: Control Center → Screen Mirroring, or the AirPlay button in a music or video app.
    - Mac: Control Center → Screen Mirroring, Sound output, or QuickTime's AirPlay button.
 
+## Screenshots
+
+Captured on the reference TV, a OnePlus 50Y1S Pro.
+
+![Now playing, then the ambient view](docs/screenshots/demo.gif)
+
+*Music from an iPhone: the now-playing screen fades to the ambient view after a few idle seconds, and the glow follows each new cover. [Full-quality MP4](docs/screenshots/demo.mp4).*
+
+| Now playing | Ambient view |
+| --- | --- |
+| ![Now playing](docs/screenshots/now-playing.jpg) | ![Ambient view](docs/screenshots/ambient.jpg) |
+| **Home, waiting for a sender** | **Sidebar, open with remote focus** |
+| ![Home](docs/screenshots/home.jpg) | ![Sidebar](docs/screenshots/sidebar.jpg) |
+| **Settings** | **Logs** |
+| ![Settings](docs/screenshots/settings.jpg) | ![Logs](docs/screenshots/logs.jpg) |
+
 > [!WARNING]
 > DRM-protected content (Apple TV+, Netflix and similar from an iPhone) shows a black screen. That is FairPlay DRM and can't be worked around.
 
