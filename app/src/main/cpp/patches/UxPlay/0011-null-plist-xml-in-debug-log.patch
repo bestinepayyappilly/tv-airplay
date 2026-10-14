@@ -1,0 +1,14 @@
+--- a/lib/utils.c
++++ b/lib/utils.c
+@@ -280,7 +280,10 @@
+     /* returns NULL   if no data needs to be stripped out.
+      * returns pointer to newly-allocated stripped text char *xml 
+      * WHICH (like plist_xml) MUST BE FREED AFTER USE*/
+-    assert(plist_xml);
++    /* a body that isn't a valid binary plist gives NULL xml; assert() is compiled out */
++    if (!plist_xml) {
++        return NULL;
++    }
+     int len = (int) strlen(plist_xml);
+     char *last =  plist_xml + len * sizeof(char); // position of null termination of plist_xml
+     char *xml = NULL;
